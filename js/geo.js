@@ -8,7 +8,18 @@
 
 const proj4 = globalThis.proj4;
 
+// Ramsey County Coordinate System (MnDOT county system) as used by FBK-Checker
+// (https://joaogoncalvescstp-oss.github.io/FBK-Checker/): Lambert Conformal Conic
+// on the county-enlarged NAD83 ellipsoid, US survey feet. Standard parallels
+// 44°53' / 45°08', central meridian -93°23', origin 44°47'28", FE 500000 ftUS,
+// FN 100000 ftUS. No datum shift: lat/lon are NAD83 (treated as WGS84, ~1 m),
+// the enlarged ellipsoid only scales projected distances to ground level.
+export const RAMSEY_DEF = '+proj=lcc +lat_1=44.88333333333333 +lat_2=45.13333333333333 +lat_0=44.79111111111111 +lon_0=-93.38333333333333 +x_0=152400.3048006096 +y_0=30480.06096012192 +a=6378418.941 +b=6357033.31 +units=us-ft +no_defs';
+
 export const CRS_PRESETS = {
+  RAMSEY: { name: 'Ramsey County Coordinate System, NAD83, US ft (Saint Paul · FBK-Checker)', def: RAMSEY_DEF },
+  'EPSG:26915': { name: 'NAD83 / UTM zone 15N (m)', def: '+proj=utm +zone=15 +datum=NAD83 +units=m +no_defs' },
+  'EPSG:32615': { name: 'WGS 84 / UTM zone 15N (m)', def: '+proj=utm +zone=15 +datum=WGS84 +units=m +no_defs' },
   'EPSG:3763': { name: 'ETRS89 / PT-TM06 (Portugal)', def: '+proj=tmerc +lat_0=39.6682583333333 +lon_0=-8.13310833333333 +k=1 +x_0=0 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs' },
   'EPSG:20790': { name: 'Lisboa / Portuguese National Grid (Hayford-Gauss IGeoE)', def: '+proj=tmerc +lat_0=39.6666666666667 +lon_0=1 +k=1 +x_0=200000 +y_0=300000 +ellps=intl +towgs84=-304.046,-60.576,103.64,0,0,0,0 +pm=lisbon +units=m +no_defs' },
   'EPSG:20791': { name: 'Lisboa / Portuguese Grid (Hayford-Gauss IPCC)', def: '+proj=tmerc +lat_0=39.6666666666667 +lon_0=1 +k=1 +x_0=0 +y_0=0 +ellps=intl +towgs84=-304.046,-60.576,103.64,0,0,0,0 +pm=lisbon +units=m +no_defs' },
@@ -45,6 +56,7 @@ function utmDef(code) {
   const n = Number(code);
   if (n >= 32601 && n <= 32660) return `+proj=utm +zone=${n - 32600} +datum=WGS84 +units=m +no_defs`;
   if (n >= 32701 && n <= 32760) return `+proj=utm +zone=${n - 32700} +south +datum=WGS84 +units=m +no_defs`;
+  if (n >= 26901 && n <= 26923) return `+proj=utm +zone=${n - 26900} +datum=NAD83 +units=m +no_defs`;
   if (n >= 25828 && n <= 25838) return `+proj=utm +zone=${n - 25800} +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs`;
   if (n >= 31965 && n <= 31985) return `+proj=utm +zone=${n - 31964} +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs`;
   return null;
@@ -54,6 +66,7 @@ function utmDef(code) {
 export async function resolveCRS(input) {
   if (!input) return null;
   const s = String(input).trim();
+  if (CRS_PRESETS[s]) return CRS_PRESETS[s].def;
   if (s.startsWith('+proj') || /^(PROJCS|PROJCRS|GEOGCS)\[/i.test(s)) return s;
   const m = s.match(/(\d{4,6})/);
   if (!m) return null;
@@ -75,6 +88,12 @@ export async function resolveCRS(input) {
     } catch { /* offline */ }
   }
   return null;
+}
+
+// Does a LandXML <CoordinateSystem> describe the Ramsey County system?
+export function isRamseyCS(cs) {
+  if (!cs) return false;
+  return /ramsey/i.test([cs.name, cs.wkt, cs.desc].filter(Boolean).join(' '));
 }
 
 // --- Local tangent plane -------------------------------------------------

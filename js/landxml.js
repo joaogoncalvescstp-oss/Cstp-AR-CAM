@@ -249,6 +249,7 @@ export function parseLandXML(text, { step = SAMPLE_STEP } = {}) {
   const coordinateSystem = csEl
     ? {
         name: csEl.getAttribute('name') || csEl.getAttribute('horizontalCoordinateSystemName') || '',
+        desc: [csEl.getAttribute('desc'), csEl.getAttribute('horizontalCoordinateSystemName')].filter(Boolean).join(' '),
         epsg: csEl.getAttribute('epsgCode') || null,
         wkt: csEl.getAttribute('ogcWktCode') || null,
         horizontalDatum: csEl.getAttribute('horizontalDatum') || '',
@@ -402,10 +403,13 @@ export function offsetPolyline(al, off) {
   return out;
 }
 
-export function formatStation(sta, decimals = 2) {
+// group = 1000 -> metric "1+234.56"; group = 100 -> US "12+34.56".
+export function formatStation(sta, decimals = 2, group = 1000) {
   const neg = sta < 0;
-  const s = Math.abs(sta);
-  const km = Math.floor(s / 1000);
-  const rest = (s - km * 1000).toFixed(decimals).padStart(decimals ? 4 + decimals : 3, '0');
-  return (neg ? '-' : '') + km + '+' + rest;
+  const f = 10 ** decimals;
+  const s = Math.round(Math.abs(sta) * f) / f;
+  const whole = Math.floor(s / group);
+  const digits = group === 100 ? 2 : 3;
+  const rest = (s - whole * group).toFixed(decimals).padStart(digits + (decimals ? decimals + 1 : 0), '0');
+  return (neg ? '-' : '') + whole + '+' + rest;
 }

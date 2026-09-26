@@ -8,7 +8,8 @@ import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
 import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js';
 import { latLonToENU } from './geo.js';
-import { formatStation, offsetPolyline } from './landxml.js';
+import { offsetPolyline } from './landxml.js';
+import { staText, elevText } from './units.js';
 
 export const PALETTE = ['#ffd400', '#00e5ff', '#ff4fd8', '#7CFF4F', '#ff8a00', '#b18cff', '#ff4f4f', '#4fa3ff'];
 
@@ -190,8 +191,8 @@ export class ARScene {
         ticks.push(p[0], p[1], p[2], p[0], p[1] + h, p[2]);
         if (isMajor) {
           const zp = al.pts[j].z !== null && al.pts[j + 1].z !== null ? al.pts[j].z + t * (al.pts[j + 1].z - al.pts[j].z) : null;
-          const sub = zp !== null ? `Z ${zp.toFixed(2)}` : '';
-          const lab = makeLabel(formatStation(s, 0), { color, sub, size: 0.05 });
+          const sub = zp !== null ? `Z ${elevText(zp, u)}` : '';
+          const lab = makeLabel(staText(s, u, 0), { color, sub, size: 0.05 });
           lab.position.set(p[0], p[1] + h, p[2]);
           lab.userData.kind = 'station';
           this.root.add(lab);

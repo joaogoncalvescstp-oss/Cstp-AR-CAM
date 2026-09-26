@@ -89,7 +89,11 @@
           <button id="btnStartLoad" class="secondary">Load LandXML…</button>
           <button id="btnStartDemo" class="secondary">Try demo</button>
         </div>
+        <div class="row">
+          <button id="btnStartSample" class="secondary">Saint Paul sample</button>
+        </div>
         <p id="secureWarn" class="warn-text hidden">This page is not served over HTTPS. Camera, GPS and compass need a secure (https://) connection.</p>
+        <p class="fine">Coordinates: Ramsey County Coordinate System (NAD83, US survey feet), same as FBK-Checker.</p>
         <p class="fine">Tip: add to the home screen to use it full-screen and offline.</p>
       </div>
     </section>
@@ -101,6 +105,7 @@
         <div class="row">
           <button id="btnLoad" class="primary">Load LandXML…</button>
           <button id="btnDemo" class="secondary">Demo</button>
+          <button id="btnSample" class="secondary">Saint Paul sample</button>
           <button id="btnClear" class="danger">Clear</button>
         </div>
         <div id="fileInfo" class="muted"></div>
@@ -113,7 +118,7 @@
         <select id="crsSelect"></select>
         <input id="crsCustom" class="hidden" placeholder="EPSG code, proj4 string or WKT" autocomplete="off" spellcheck="false">
         <div id="anchorBox" class="hidden">
-          <label>Anchor station <input id="anchorSta" type="number" step="0.01" value="0"></label>
+          <label>Anchor station (file units) <input id="anchorSta" type="number" step="0.01" value="0"></label>
           <button id="btnAnchor" class="secondary">Pin station here, facing along it</button>
           <p class="hint">Without a coordinate system the alignment is placed relative to you: the chosen station is put at your GPS position, running in the direction the camera is pointing.</p>
         </div>
@@ -154,6 +159,12 @@
       <div class="sheet-head"><h2>Settings</h2><button class="close" aria-label="Close">✕</button></div>
       <div class="sheet-body form">
         <h3>Display</h3>
+        <label>Units
+          <select data-set="units">
+            <option value="us">US survey feet · stations 12+34.56</option>
+            <option value="metric">Metres · stations 1+234.56</option>
+          </select>
+        </label>
         <label>Height model
           <select data-set="heightMode">
             <option value="relative">Design profile, relative to nearest station</option>
@@ -161,13 +172,13 @@
             <option value="flat">Flat on the ground</option>
           </select>
         </label>
-        <label>Phone height above ground (m) <input type="number" step="0.05" data-set="eyeHeight"></label>
-        <label>Vertical offset / geoid correction (m) <input type="number" step="0.01" data-set="verticalOffset"></label>
-        <label>Manual ground elevation (absolute mode, blank = GPS) <input type="number" step="0.01" data-set="manualElevation" placeholder="GPS"></label>
-        <label>Offset lines (m, comma separated, + = right) <input type="text" data-set="offsets" placeholder="-3.5, 3.5"></label>
-        <label>Tick interval (m) <input type="number" step="1" min="1" data-set="tickInterval"></label>
-        <label>Label interval (m) <input type="number" step="10" min="1" data-set="labelInterval"></label>
-        <label>Label range (m) <input type="number" step="50" min="10" data-set="labelRange"></label>
+        <label>Phone height above ground (<span class="u">ft</span>) <input type="number" step="0.05" data-set="eyeHeight"></label>
+        <label>Vertical offset / geoid correction (<span class="u">ft</span>) <input type="number" step="0.01" data-set="verticalOffset"></label>
+        <label>Manual ground elevation, <span class="u">ft</span> (absolute mode, blank = GPS) <input type="number" step="0.01" data-set="manualElevation" placeholder="GPS"></label>
+        <label>Offset lines (<span class="u">ft</span>, comma separated, + = right) <input type="text" data-set="offsets" placeholder="-12, 12"></label>
+        <label>Tick interval (<span class="u">ft</span>) <input type="number" step="1" min="1" data-set="tickInterval"></label>
+        <label>Label interval (<span class="u">ft</span>) <input type="number" step="10" min="1" data-set="labelInterval"></label>
+        <label>Label range (<span class="u">ft</span>) <input type="number" step="50" min="10" data-set="labelRange"></label>
         <label>Line width (px) <input type="number" step="1" min="1" max="30" data-set="lineWidth"></label>
         <label class="check"><input type="checkbox" data-set="showPoints"> Show CgPoints</label>
 

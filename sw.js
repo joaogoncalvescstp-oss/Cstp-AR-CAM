@@ -1,6 +1,6 @@
 // Offline cache for the app shell. Network-first for HTML so updates land
 // quickly; cache-first for everything else.
-const CACHE = 'cstp-ar-cam-v1';
+const CACHE = 'cstp-ar-cam-v2';
 const SHELL = [
   './',
   'index.html',
@@ -23,6 +23,8 @@ const SHELL = [
   'vendor/three/addons/lines/LineSegments2.js',
   'vendor/three/addons/lines/LineSegmentsGeometry.js',
   'samples/demo-alignment.xml',
+  'samples/saint-paul-ramsey.xml',
+  'js/units.js',
   'icons/icon.svg',
   'icons/icon-192.png',
   'icons/icon-512.png',

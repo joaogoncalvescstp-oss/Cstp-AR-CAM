@@ -211,7 +211,7 @@ export async function sharePhoto(rec) {
 }
 
 export function photosToCSV(recs) {
-  const cols = ['file', 'time', 'lat', 'lon', 'alt', 'accuracy_m', 'heading_deg', 'pitch_deg', 'alignment', 'station', 'offset_m', 'grid_x', 'grid_y', 'note'];
+  const cols = ['file', 'time', 'lat', 'lon', 'alt', 'accuracy_m', 'heading_deg', 'pitch_deg', 'alignment', 'station', 'offset', 'units', 'grid_n', 'grid_e', 'crs', 'note'];
   const esc = (v) => {
     if (v === null || v === undefined) return '';
     const s = String(v);
@@ -219,7 +219,7 @@ export function photosToCSV(recs) {
   };
   const rows = recs.map((r) => {
     const m = r.meta, i = m.info || {};
-    return [photoFileName(r), new Date(m.time).toISOString(), m.lat, m.lon, m.alt, m.accuracy, m.heading, i.pitch, i.alignment, i.station, i.offset, i.gridX, i.gridY, r.note || ''].map(esc).join(',');
+    return [photoFileName(r), new Date(m.time).toISOString(), m.lat, m.lon, m.alt, m.accuracy, m.heading, i.pitch, i.alignment, i.station, i.offset, i.units || 'm', i.gridY, i.gridX, i.crs, r.note || ''].map(esc).join(',');
   });
   return [cols.join(','), ...rows].join('\n');
 }

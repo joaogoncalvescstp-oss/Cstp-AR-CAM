@@ -3,39 +3,40 @@
   <Units>
     <Imperial areaUnit="squareFoot" linearUnit="USSurveyFoot" volumeUnit="cubicYard" temperatureUnit="fahrenheit" pressureUnit="inHG" angularUnit="decimal degrees" directionUnit="decimal degrees"/>
   </Units>
+  <CoordinateSystem name="MN-RAMSEY" desc="Ramsey County Coordinate System, NAD83, US survey feet" horizontalDatum="NAD83" verticalDatum="NAVD88"/>
   <Project name="CSTP AR CAM demo"/>
   <Application name="make_demo.py" manufacturer="CSTP"/>
   <CgPoints name="Features">
-    <CgPoint name="SIGN-01" code="Road sign">15122.4038 3087.9904 853.429</CgPoint>
-    <CgPoint name="MH-01" code="Manhole">15492.9066 3339.7862 860.339</CgPoint>
-    <CgPoint name="TREE-07" code="Tree to remove">15588.0643 3574.3779 856.429</CgPoint>
+    <CgPoint name="SIGN-01" code="Road sign">159853.3807 572920.0358 853.429</CgPoint>
+    <CgPoint name="MH-01" code="Manhole">159669.7473 573328.6337 860.339</CgPoint>
+    <CgPoint name="TREE-07" code="Tree to remove">159455.2436 573463.0821 856.429</CgPoint>
   </CgPoints>
   <Alignments name="Demo">
     <Alignment name="DEMO-CL" length="1050.0000" staStart="0.0000" desc="Tangent, clothoid, R650 ft curve, clothoid, tangent">
       <CoordGeom>
         <Line length="250.0000">
-          <Start>15000.0000 3000.0000</Start>
-          <End>15216.5064 3125.0000</End>
+          <Start>159918.7791 572784.2122</Start>
+          <End>159833.2741 573019.1354</End>
         </Line>
         <Spiral rot="cw" spiType="clothoid" length="150.0000" radiusStart="INF" radiusEnd="650.0000">
-          <Start>15216.5064 3125.0000</Start>
-          <PI>15303.1694 3175.0349</PI>
-          <End>15343.3554 3204.8918</End>
+          <Start>159833.2741 573019.1354</Start>
+          <PI>159799.0482 573113.1702</PI>
+          <End>159776.6232 573157.9304</End>
         </Spiral>
         <Curve rot="cw" radius="650.0000" length="200.0000">
-          <Start>15343.3554 3204.8918</Start>
-          <Center>14955.7086 3726.6484</Center>
-          <End>15483.1689 3346.7988</End>
-          <PI>15424.2650 3265.0047</PI>
+          <Start>159776.6232 573157.9304</Start>
+          <Center>159195.4790 572866.7749</Center>
+          <End>159661.1503 573320.2617</End>
+          <PI>159731.4732 573248.0493</PI>
         </Curve>
         <Spiral rot="cw" spiType="clothoid" length="150.0000" radiusStart="650.0000" radiusEnd="INF">
-          <Start>15483.1689 3346.7988</Start>
-          <PI>15512.4252 3387.4242</PI>
-          <End>15561.1666 3474.8213</End>
+          <Start>159661.1503 573320.2617</Start>
+          <PI>159626.2224 573356.1280</PI>
+          <End>159548.6170 573419.3052</End>
         </Spiral>
         <Line length="300.0000">
-          <Start>15561.1666 3474.8213</Start>
-          <End>15707.2887 3736.8295</End>
+          <Start>159548.6170 573419.3052</Start>
+          <End>159315.9631 573608.7047</End>
         </Line>
       </CoordGeom>
       <Profile name="DEMO-CL profile">

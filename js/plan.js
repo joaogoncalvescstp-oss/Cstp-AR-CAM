@@ -2,7 +2,7 @@
 // Drag to pan, wheel/pinch to zoom, double-tap to recentre.
 
 import { PALETTE } from './ar.js';
-import { formatStation } from './landxml.js';
+import { staText } from './units.js';
 
 export class PlanView {
   constructor(canvas) {
@@ -13,6 +13,7 @@ export class PlanView {
     this.user = null; // {x, y, bearing (grid, rad), accuracy (file units)}
     this.nearest = null;
     this.follow = true;
+    this.units = 1; // metres per file unit (for station labels)
     this.view = { cx: 0, cy: 0, scale: 1 }; // pixels per unit
     this._pointers = new Map();
     this._bind();
@@ -118,7 +119,7 @@ export class PlanView {
         ctx.beginPath();
         ctx.arc(x, y, 3, 0, Math.PI * 2);
         ctx.fill();
-        ctx.fillText(formatStation(s, 0), x + 5, y - 5);
+        ctx.fillText(staText(s, this.units, 0), x + 5, y - 5);
       }
     });
 

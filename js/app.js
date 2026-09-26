@@ -1,7 +1,8 @@
 // CSTP AR CAM — main controller.
 
-import { parseLandXML, stationOffset, pointAtStation, formatStation } from './landxml.js';
-import { Georef, CRS_PRESETS, resolveCRS, unitScale, latLonToENU, enuToLatLon } from './geo.js';
+import { parseLandXML, stationOffset, pointAtStation } from './landxml.js';
+import { Georef, CRS_PRESETS, resolveCRS, unitScale, latLonToENU, enuToLatLon, isRamseyCS } from './geo.js';
+import { Units, USFT, dLen, toDisp, fromDisp, staText, elevText } from './units.js';
 import { OrientationSource, GPSSource, MotionSource, WakeLock, vibrate } from './sensors.js';
 import { CameraFeed } from './camera.js';
 import { ARScene, PALETTE } from './ar.js';
@@ -14,15 +15,20 @@ const DEG = Math.PI / 180;
 
 // --- Settings --------------------------------------------------------------
 
+// Length settings (eyeHeight, verticalOffset, manualElevation, offsets,
+// tickInterval, labelInterval, labelRange) are stored in display units.
+const LENGTH_KEYS = ['eyeHeight', 'verticalOffset', 'manualElevation', 'tickInterval', 'labelInterval', 'labelRange'];
 const DEFAULTS = {
+  schema: 2,
+  units: 'us',
   heightMode: 'relative',
-  eyeHeight: 1.6,
+  eyeHeight: 5.25,
   verticalOffset: 0,
   manualElevation: '',
   offsets: '',
-  tickInterval: 20,
+  tickInterval: 25,
   labelInterval: 100,
-  labelRange: 400,
+  labelRange: 1300,
   lineWidth: 6,
   showPoints: true,
   headingOffset: 0,
@@ -32,13 +38,16 @@ const DEFAULTS = {
   photoStamp: true,
   photoClean: false,
   photoAutoDownload: false,
-  crsChoice: 'file',
+  crsChoice: 'RAMSEY',
   crsCustom: '',
   anchorSta: 0,
   activeAlign: 'auto',
 };
 
-const settings = { ...DEFAULTS, ...safeJSON(localStorage.getItem('settings')) };
+const stored = safeJSON(localStorage.getItem('settings'));
+// Settings from the first (metric, Portugal-oriented) version are replaced by the Saint Paul defaults.
+const settings = stored.schema === DEFAULTS.schema ? { ...DEFAULTS, ...stored } : { ...DEFAULTS };
+Units.system = settings.units;
 function safeJSON(s) {
   try { return JSON.parse(s) || {}; } catch { return {}; }
 }
@@ -130,14 +139,14 @@ function rebuildModel() {
   renderCrsSelect();
 }
 
-async function loadText(name, text, { persist = true, quiet = false } = {}) {
+async function loadText(name, text, { persist = true, quiet = false, georef = true } = {}) {
   const parsed = parseLandXML(text);
   state.files = state.files.filter((f) => f.name !== name);
   state.files.push({ name, text, parsed });
   rebuildModel();
   if (persist) FileStore.put(name, text).catch(() => {});
   if (!quiet) toast(`Loaded ${parsed.alignments.length} alignment(s), ${parsed.points.length} point(s)`);
-  await autoGeoref();
+  if (georef) await autoGeoref();
   scheduleRebuild();
 }
 
@@ -155,19 +164,30 @@ async function loadFiles(fileList) {
 async function loadDemo() {
   try {
     const r = await fetch('samples/demo-alignment.xml');
-    await loadText('demo-alignment.xml', await r.text());
-    settings.crsChoice = 'anchor';
+    // The demo has no coordinate system: pin it in front of the user without
+    // changing the saved CRS choice used for real (Ramsey County) files.
+    await loadText('demo-alignment.xml', await r.text(), { georef: false });
     settings.anchorSta = 0;
-    saveSettings();
     state.georef.mode = 'none';
     state.pendingAutoAnchor = true;
-    renderCrsSelect();
+    renderCrsSelect('anchor');
     tryAutoAnchor();
     if (!state.started) toast('Demo loaded — start the AR camera; it will be placed in front of you.', 3500);
   } catch (e) {
     toast('Could not load demo: ' + e.message, 4000);
   }
 }
+
+async function loadSample() {
+  try {
+    const r = await fetch('samples/saint-paul-ramsey.xml');
+    await loadText('saint-paul-ramsey.xml', await r.text());
+  } catch (e) {
+    toast('Could not load sample: ' + e.message, 4000);
+  }
+}
+$('#btnSample').addEventListener('click', loadSample);
+$('#btnStartSample').addEventListener('click', loadSample);
 
 $('#fileInput').addEventListener('change', async (e) => {
   await loadFiles(e.target.files);
@@ -207,8 +227,8 @@ function renderAlignList() {
   sel.innerHTML = '<option value="auto">Nearest (auto)</option>';
   (m ? m.alignments : []).forEach((al, i) => {
     const li = document.createElement('li');
-    const u = m.linearUnit === 'meter' ? 'm' : 'ft';
-    li.innerHTML = `<input type="checkbox" ${state.visible[i] ? 'checked' : ''} aria-label="Show"><input type="color" value="${al.color}" aria-label="Colour"><div class="meta"><b></b><small>${formatStation(al.staStart)} → ${formatStation(al.staStart + al.length)} · ${al.length.toFixed(1)} ${u}${al.profiles.length ? ' · profile' : ''}</small></div>`;
+    const u = state.georef.units;
+    li.innerHTML = `<input type="checkbox" ${state.visible[i] ? 'checked' : ''} aria-label="Show"><input type="color" value="${al.color}" aria-label="Colour"><div class="meta"><b></b><small>${staText(al.staStart, u)} → ${staText(al.staStart + al.length, u)} · ${dLen(al.length * u, 1)}${al.profiles.length ? ' · profile' : ''}</small></div>`;
     li.querySelector('b').textContent = al.name;
     li.querySelector('input[type=checkbox]').addEventListener('change', (e) => {
       state.visible[i] = e.target.checked;
@@ -234,7 +254,7 @@ $('#activeAlign').addEventListener('change', (e) => {
 
 // --- Coordinate system ----------------------------------------------------------
 
-function renderCrsSelect() {
+function renderCrsSelect(force) {
   const sel = $('#crsSelect');
   const cs = state.model && state.model.coordinateSystem;
   sel.innerHTML = '';
@@ -248,10 +268,10 @@ function renderCrsSelect() {
   add('anchor', 'Local – pin to my position (no CRS)');
   for (const [k, v] of Object.entries(CRS_PRESETS)) add(k, `${k} – ${v.name}`);
   add('custom', 'Other EPSG / proj4 / WKT…');
-  let choice = settings.crsChoice;
-  if (choice === 'file' && !(cs && (cs.epsg || cs.wkt))) choice = 'anchor';
+  let choice = force || (state.georef.mode === 'anchor' ? 'anchor' : settings.crsChoice);
+  if (choice === 'file' && !(cs && (cs.epsg || cs.wkt))) choice = 'RAMSEY';
   sel.value = choice;
-  if (sel.value !== choice) sel.value = 'anchor';
+  if (sel.value !== choice) sel.value = 'RAMSEY';
   $('#crsCustom').value = settings.crsCustom || '';
   updateCrsUI();
 }
@@ -284,6 +304,7 @@ async function applyCrs(choice, custom) {
     label = custom.length > 30 ? custom.slice(0, 30) + '…' : custom;
   } else if (CRS_PRESETS[choice]) {
     input = choice;
+    label = choice === 'RAMSEY' ? 'Ramsey County (NAD83, US ft)' : choice;
   }
   if (!input) return false;
   renderGeorefStatus('Resolving coordinate system…');
@@ -310,7 +331,8 @@ async function applyCrs(choice, custom) {
     let extra = ` · centre ${ll.lat.toFixed(5)}, ${ll.lon.toFixed(5)}`;
     if (gp) {
       const d = latLonToENU(gp, ll.lat, ll.lon);
-      extra += ` · ${(Math.hypot(d.e, d.n) / 1000).toFixed(2)} km from you`;
+      const dist = Math.hypot(d.e, d.n);
+      extra += Units.system === 'us' ? ` · ${(dist / 1609.344).toFixed(2)} mi from you` : ` · ${(dist / 1000).toFixed(2)} km from you`;
     }
     renderGeorefStatus(`Georeferenced: ${label}${extra}`, 'ok');
   }
@@ -325,12 +347,14 @@ $('#btnApplyCrs').addEventListener('click', async () => {
   if (await applyCrs(settings.crsChoice, settings.crsCustom)) toast('Coordinate system applied');
 });
 
-// Pick the coordinate system after loading: the file's own CRS wins, then a
-// previously chosen preset/custom CRS, otherwise fall back to a local anchor.
+// Pick the coordinate system after loading: a file tagged as Ramsey County uses
+// the FBK-Checker definition, another declared EPSG/WKT is used as-is, and files
+// without one use the saved choice (Ramsey County by default).
 async function autoGeoref() {
   const cs = state.model && state.model.coordinateSystem;
-  if (cs && (cs.epsg || cs.wkt)) settings.crsChoice = 'file';
-  else if (settings.crsChoice === 'file') settings.crsChoice = 'anchor';
+  if (isRamseyCS(cs)) settings.crsChoice = 'RAMSEY';
+  else if (cs && (cs.epsg || cs.wkt)) settings.crsChoice = 'file';
+  else if (settings.crsChoice === 'file') settings.crsChoice = 'RAMSEY';
   saveSettings();
   if (settings.crsChoice === 'file' || CRS_PRESETS[settings.crsChoice] || (settings.crsChoice === 'custom' && settings.crsCustom)) {
     await applyCrs(settings.crsChoice, settings.crsCustom);
@@ -359,7 +383,7 @@ function pinAnchor({ ahead = 0 } = {}) {
   if (!pos) return toast('Waiting for GPS…');
   const sta = Number($('#anchorSta').value) || al.staStart;
   settings.anchorSta = sta;
-  settings.crsChoice = 'anchor';
+  if (!ahead) settings.crsChoice = 'anchor'; // the demo's automatic pin keeps the saved (Ramsey) choice
   saveSettings();
   const p = pointAtStation(al, sta);
   const heading = orientation.hasData ? orientation.angles(orientation.update()).heading : 0;
@@ -368,7 +392,7 @@ function pinAnchor({ ahead = 0 } = {}) {
   state.georef.setAnchor({ x: p.x, y: p.y }, ll, p.bearing, heading * DEG);
   persistGeoref();
   state.pendingAutoAnchor = false;
-  renderGeorefStatus(`Pinned ${al.name} ${formatStation(sta)} at ${ll.lat.toFixed(6)}, ${ll.lon.toFixed(6)}, bearing ${heading.toFixed(1)}°`, 'ok');
+  renderGeorefStatus(`Pinned ${al.name} ${staText(sta, state.georef.units)} at ${ll.lat.toFixed(6)}, ${ll.lon.toFixed(6)}, bearing ${heading.toFixed(1)}°`, 'ok');
   scheduleRebuild(true);
   toast('Alignment pinned to your position');
 }
@@ -388,19 +412,49 @@ function applySettingsToEngines() {
   camera.fovLong = Number(settings.fovLong) || 66;
   Object.assign(ar.settings, {
     heightMode: settings.heightMode,
-    eyeHeight: Number(settings.eyeHeight) || 1.6,
-    tickInterval: Math.max(1, Number(settings.tickInterval) || 20),
-    labelInterval: Math.max(1, Number(settings.labelInterval) || 100),
-    labelRange: Math.max(10, Number(settings.labelRange) || 400),
+    eyeHeight: fromDisp(Number(settings.eyeHeight) || toDisp(1.6)),
+    tickInterval: fromDisp(Math.max(1, Number(settings.tickInterval) || 25)),
+    labelInterval: fromDisp(Math.max(1, Number(settings.labelInterval) || 100)),
+    labelRange: fromDisp(Math.max(10, Number(settings.labelRange) || 1300)),
     lineWidth: Math.max(1, Number(settings.lineWidth) || 6),
     showPoints: !!settings.showPoints,
-    offsets: String(settings.offsets || '').split(/[,;\s]+/).map(Number).filter((v) => Number.isFinite(v) && v !== 0),
+    offsets: String(settings.offsets || '').split(/[,;\s]+/).map(Number).filter((v) => Number.isFinite(v) && v !== 0).map(fromDisp),
   });
+  plan.units = state ? state.georef.units : 1;
+}
+
+// Switching unit systems converts the stored length settings.
+function setUnits(system) {
+  if (system === Units.system) return;
+  const k = system === 'us' ? 1 / USFT : USFT;
+  const conv = (v) => (v === '' || v === null || !Number.isFinite(+v) ? v : +(+v * k).toFixed(4));
+  for (const key of LENGTH_KEYS) settings[key] = conv(settings[key]);
+  settings.offsets = String(settings.offsets || '').split(/[,;\s]+/).filter(Boolean).map((v) => conv(v)).join(', ');
+  settings.units = system;
+  Units.system = system;
+  saveSettings();
+  applySettingsToEngines();
+  syncSettingInputs();
+  updateUnitLabels();
+  updateCalibUI();
+  renderAlignList();
+  scheduleRebuild(true);
+}
+
+function updateUnitLabels() {
+  $$('.u').forEach((el) => { el.textContent = Units.label; });
+  const off = $('[data-set=offsets]');
+  if (off) off.placeholder = Units.system === 'us' ? '-12, 12' : '-3.5, 3.5';
 }
 
 const GEOMETRY_KEYS = new Set(['heightMode', 'tickInterval', 'labelInterval', 'lineWidth', 'showPoints', 'offsets']);
 $$('[data-set]').forEach((el) => {
   const k = el.dataset.set;
+  if (k === 'units') {
+    el.value = settings.units;
+    el.addEventListener('change', () => setUnits(el.value));
+    return;
+  }
   if (el.type === 'checkbox') el.checked = !!settings[k];
   else el.value = settings[k];
   el.addEventListener(el.tagName === 'SELECT' || el.type === 'checkbox' ? 'change' : 'input', () => {
@@ -421,12 +475,13 @@ function syncSettingInputs() {
     else if (document.activeElement !== el) el.value = settings[k];
   });
 }
+updateUnitLabels();
 
 // --- Calibration panel ---------------------------------------------------------------
 
 function updateCalibUI() {
   $('#calHdg').textContent = `${(+settings.headingOffset || 0).toFixed(1)}°`;
-  $('#calH').textContent = `${(+settings.verticalOffset || 0).toFixed(2)} m`;
+  $('#calH').textContent = `${(+settings.verticalOffset || 0).toFixed(2)} ${Units.label}`;
   $('#calFov').textContent = `${(+settings.fovLong || 66).toFixed(1)}°`;
 }
 updateCalibUI();
@@ -450,7 +505,7 @@ $$('[data-cal]').forEach((b) => b.addEventListener('click', () => {
 $('#btnAlignHeading').addEventListener('click', () => {
   const n = state.nearest;
   if (!n || !ar.origin) return toast('No alignment nearby');
-  if (n.so.distance * state.georef.units > 30) return toast('Walk onto the alignment first (within 30 m)');
+  if (n.so.distance * state.georef.units > 30) return toast(`Walk onto the alignment first (within ${dLen(30, 0)})`);
   const al = n.al;
   const a = pointAtStation(al, n.so.station - 2), b = pointAtStation(al, n.so.station + 2);
   const la = state.georef.gridToLatLon(a.x, a.y), lb = state.georef.gridToLatLon(b.x, b.y);
@@ -575,10 +630,11 @@ function photoContext() {
   const info = { pitch: +pitch.toFixed(1), roll: +roll.toFixed(1), crs: state.georef.label || '' };
   if (n) {
     info.alignment = n.al.name;
-    info.station = formatStation(n.so.station);
-    info.offset = +(n.so.offset * u).toFixed(3);
-    info.distance = +(n.so.distance * u).toFixed(3);
-    if (n.so.z !== null) info.designZ = +n.so.z.toFixed(3);
+    info.station = staText(n.so.station, u);
+    info.offset = +toDisp(n.so.offset * u).toFixed(3);
+    info.distance = +toDisp(n.so.distance * u).toFixed(3);
+    info.units = Units.label;
+    if (n.so.z !== null) info.designZ = +toDisp(n.so.z * u).toFixed(3);
   }
   if (state.userGrid) {
     info.gridX = +state.userGrid.x.toFixed(3);
@@ -592,15 +648,15 @@ async function takePhoto() {
   const { pos, heading, pitch, info } = photoContext();
   const time = Date.now();
   const d = new Date(time);
-  const offTxt = info.offset !== undefined ? `${info.offset >= 0 ? 'R' : 'L'} ${Math.abs(info.offset).toFixed(2)} m` : '';
+  const offTxt = info.offset !== undefined ? `${info.offset >= 0 ? 'R' : 'L'} ${Math.abs(info.offset).toFixed(2)} ${Units.label}` : '';
   const description = info.alignment ? `${info.alignment} ${info.station} ${offTxt}` : 'CSTP AR CAM';
   const stamp = [
     `CSTP AR CAM · ${d.toLocaleString()}`,
-    pos ? `Lat ${pos.lat.toFixed(7)}  Lon ${pos.lon.toFixed(7)}  ±${pos.accuracy.toFixed(1)} m${pos.alt !== null ? `  Alt ${pos.alt.toFixed(1)} m` : ''}` : 'No GPS fix',
+    pos ? `Lat ${pos.lat.toFixed(7)}  Lon ${pos.lon.toFixed(7)}  ±${dLen(pos.accuracy, 1)}${pos.alt !== null ? `  GPS alt ${dLen(pos.alt, 1)}` : ''}` : 'No GPS fix',
     `Heading ${heading.toFixed(1)}°  Pitch ${pitch.toFixed(1)}°`,
   ];
   if (info.alignment) stamp.push(`${info.alignment} · Sta ${info.station} · ${offTxt}${info.designZ !== undefined ? ` · Z ${info.designZ.toFixed(2)}` : ''}`);
-  if (info.gridX !== undefined && state.georef.mode === 'crs') stamp.push(`E ${info.gridX.toFixed(2)}  N ${info.gridY.toFixed(2)}  (${info.crs})`);
+  if (info.gridX !== undefined && state.georef.mode === 'crs') stamp.push(`N ${info.gridY.toFixed(2)}  E ${info.gridX.toFixed(2)}  (${info.crs})`);
 
   const meta = { time, lat: pos ? pos.lat : null, lon: pos ? pos.lon : null, alt: pos ? pos.alt : null, accuracy: pos ? pos.accuracy : null, heading, description, info };
 
@@ -664,10 +720,10 @@ function openViewer(rec) {
   const m = rec.meta, i = m.info || {};
   $('#viewerMeta').textContent = [
     new Date(m.time).toLocaleString() + (m.clean ? ' (clean)' : ''),
-    m.lat !== null ? `Lat ${m.lat.toFixed(7)}  Lon ${m.lon.toFixed(7)}  ±${fmt(m.accuracy, 1)} m  Alt ${fmt(m.alt, 1)} m` : 'No GPS',
+    m.lat !== null ? `Lat ${m.lat.toFixed(7)}  Lon ${m.lon.toFixed(7)}  ±${dLen(m.accuracy, 1)}  GPS alt ${dLen(m.alt, 1)}` : 'No GPS',
     `Heading ${fmt(m.heading, 1)}°  Pitch ${fmt(i.pitch, 1)}°`,
-    i.alignment ? `${i.alignment}  Sta ${i.station}  Offset ${fmt(i.offset, 2)} m${i.designZ !== undefined ? `  Z ${fmt(i.designZ, 2)}` : ''}` : '',
-    i.gridX !== undefined ? `Grid E ${fmt(i.gridX, 3)}  N ${fmt(i.gridY, 3)}  ${i.crs || ''}` : '',
+    i.alignment ? `${i.alignment}  Sta ${i.station}  Offset ${fmt(i.offset, 2)} ${i.units || 'm'}${i.designZ !== undefined ? `  Z ${fmt(i.designZ, 2)}` : ''}` : '',
+    i.gridX !== undefined ? `Grid N ${fmt(i.gridY, 3)}  E ${fmt(i.gridX, 3)}  ${i.crs || ''}` : '',
   ].filter(Boolean).join('\n');
   $('#viewerNote').value = rec.note || '';
   $('#viewer').classList.remove('hidden');
@@ -771,10 +827,11 @@ function frame(t) {
     if (ar.settings.heightMode === 'relative' && best && best.so.z !== null) ground = best.so.z * u;
     else if (ar.settings.heightMode === 'absolute') {
       const manual = settings.manualElevation;
-      ground = manual !== '' && manual !== null && Number.isFinite(+manual) ? +manual : (pos.alt ?? 0) - ar.settings.eyeHeight;
+      ground = manual !== '' && manual !== null && Number.isFinite(+manual) ? fromDisp(+manual) : (pos.alt ?? 0) - ar.settings.eyeHeight;
     }
-    ar.setGroundElevation(ground + (+settings.verticalOffset || 0) * (ar.settings.heightMode === 'flat' ? 0 : 1));
-    if (ar.settings.heightMode === 'flat') ar.root.position.y = -(+settings.verticalOffset || 0);
+    const vOff = fromDisp(+settings.verticalOffset || 0);
+    ar.setGroundElevation(ground + (ar.settings.heightMode === 'flat' ? 0 : vOff));
+    if (ar.settings.heightMode === 'flat') ar.root.position.y = -vOff;
   } else {
     ar.setNearest(null);
   }
@@ -801,13 +858,13 @@ function updateHUD() {
   const { heading, pitch } = orientation.angles(orientation.quaternion);
   if (n) {
     $('#hudAlign').textContent = n.al.name;
-    $('#hudSta').textContent = formatStation(n.so.station);
+    $('#hudSta').textContent = staText(n.so.station, u);
     const off = n.so.offset * u;
-    $('#hudOff').textContent = `${off >= 0 ? 'R' : 'L'} ${Math.abs(off).toFixed(2)} m`;
+    $('#hudOff').textContent = `${off >= 0 ? 'R' : 'L'} ${dLen(Math.abs(off))}`;
     const elev = $('#hudElev');
     if (n.so.z !== null) {
       elev.classList.remove('hidden');
-      elev.textContent = `Z ${n.so.z.toFixed(2)}` + (n.so.beyond ? (n.so.i === 0 ? ' · before start' : ' · past end') : '');
+      elev.textContent = `Z ${elevText(n.so.z, u)}` + (n.so.beyond ? (n.so.i === 0 ? ' · before start' : ' · past end') : '');
     } else elev.classList.add('hidden');
   } else {
     $('#hudAlign').textContent = state.model ? (state.georef.ready ? 'Waiting for GPS…' : 'Not georeferenced') : 'No alignment loaded';
@@ -817,7 +874,7 @@ function updateHUD() {
   }
   const g = $('#hudGps');
   if (pos) {
-    g.textContent = `${gps.locked ? '🔒 ' : ''}GPS ±${pos.accuracy.toFixed(1)} m`;
+    g.textContent = `${gps.locked ? '🔒 ' : ''}GPS ±${dLen(pos.accuracy, 1)}`;
     g.className = 'pill ' + (pos.accuracy <= 5 ? 'good' : pos.accuracy > 15 ? 'bad' : '');
   } else {
     g.textContent = gps.error ? 'GPS: ' + gps.error : 'GPS …';
@@ -830,7 +887,7 @@ function updateHUD() {
   if (!orientation.hasData) w = 'No compass – drag to look';
   else if (orientation.source.includes('relative')) w = 'Relative orientation – calibrate heading';
   else if (orientation.accuracy !== null && orientation.accuracy > 25) w = 'Compass inaccurate – wave phone in figure 8';
-  else if (n && n.so.distance * u > 500) w = `${(n.so.distance * u / 1000).toFixed(2)} km from alignment`;
+  else if (n && n.so.distance * u > 500) w = Units.system === 'us' ? `${(n.so.distance * u / 1609.344).toFixed(2)} mi from alignment` : `${(n.so.distance * u / 1000).toFixed(2)} km from alignment`;
   warn.textContent = w;
   warn.classList.toggle('hidden', !w);
 }
@@ -900,16 +957,16 @@ function updateSensorTable() {
     ['Compass accuracy', orientation.accuracy !== null ? `±${orientation.accuracy}°` : 'n/a'],
     ['Heading correction', `${(+settings.headingOffset || 0).toFixed(2)}°`],
     ['GPS (smoothed)', pos ? `${pos.lat.toFixed(7)}, ${pos.lon.toFixed(7)}` : gps.error || 'waiting'],
-    ['GPS accuracy', pos ? `±${fmt(pos.accuracy, 1)} m (raw ±${fmt(raw && raw.accuracy, 1)} m)` : '—'],
-    ['Altitude', pos ? `${fmt(pos.alt, 1)} m ±${fmt(pos.altAccuracy, 1)} m` : '—'],
+    ['GPS accuracy', pos ? `±${dLen(pos.accuracy, 1)} (raw ±${dLen(raw && raw.accuracy, 1)})` : '—'],
+    ['GPS altitude (ellipsoid)', pos ? `${dLen(pos.alt, 1)} ±${dLen(pos.altAccuracy, 1)}` : '—'],
     ['Speed / course', raw ? `${fmt(raw.speed, 1)} m/s / ${fmt(raw.heading, 0)}°` : '—'],
-    ['Grid position', state.userGrid ? `E ${state.userGrid.x.toFixed(3)} N ${state.userGrid.y.toFixed(3)}` : '—'],
+    ['Grid position', state.userGrid ? `N ${state.userGrid.y.toFixed(3)} E ${state.userGrid.x.toFixed(3)}` : '—'],
     ['Accelerometer (g incl.)', a ? `${fmt(a.x, 2)}, ${fmt(a.y, 2)}, ${fmt(a.z, 2)} m/s²` : 'n/a'],
     ['Gyroscope', r ? `${fmt(r.alpha, 1)}, ${fmt(r.beta, 1)}, ${fmt(r.gamma, 1)} °/s` : 'n/a'],
     ['Screen', `${screen.orientation ? screen.orientation.type : ''} ${window.innerWidth}×${window.innerHeight} @${window.devicePixelRatio}x`],
     ['Camera', camera.active ? `${camera.video.videoWidth}×${camera.video.videoHeight}${cs.frameRate ? ' @' + Math.round(cs.frameRate) + 'fps' : ''} · zoom ${camera.zoom} · torch ${camera.hasTorch ? 'yes' : 'no'}` : 'off'],
     ['Vertical FOV', `${ar.camera.fov.toFixed(1)}°`],
-    ['Ground elevation used', `${ar.groundElevation.toFixed(2)} m (${ar.settings.heightMode})`],
+    ['Ground elevation used', `${dLen(ar.groundElevation)} (${ar.settings.heightMode})`],
     ['Georeference', state.georef.ready ? state.georef.label : 'none'],
   ];
   $('#sensorTable').innerHTML = rows.map(([k, v]) => `<tr><td>${k}</td><td>${String(v).replace(/</g, '&lt;')}</td></tr>`).join('');
