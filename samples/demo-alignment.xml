@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<LandXML xmlns="http://www.landxml.org/schema/LandXML-1.2" version="1.2" date="2026-09-26" time="12:00:00">
+  <Units>
+    <Metric areaUnit="squareMeter" linearUnit="meter" volumeUnit="cubicMeter" temperatureUnit="celsius" pressureUnit="milliBars" angularUnit="decimal degrees" directionUnit="decimal degrees"/>
+  </Units>
+  <Project name="CSTP AR CAM demo"/>
+  <Application name="make_demo.py" manufacturer="CSTP"/>
+  <CgPoints name="Features">
+    <CgPoint name="SIGN-01" code="Road sign">5040.8013 1029.3301 101.250</CgPoint>
+    <CgPoint name="MH-01" code="Manhole">5149.1826 1100.4959 103.428</CgPoint>
+    <CgPoint name="TREE-07" code="Tree to remove">5181.9073 1174.6749 102.125</CgPoint>
+  </CgPoints>
+  <Alignments name="Demo">
+    <Alignment name="EN-Demo" length="320.0000" staStart="0.0000" desc="Tangent, clothoid, R200 arc, clothoid, tangent">
+      <CoordGeom>
+        <Line length="80.0000">
+          <Start>5000.0000 1000.0000</Start>
+          <End>5069.2820 1040.0000</End>
+        </Line>
+        <Spiral rot="cw" spiType="clothoid" length="40.0000" radiusStart="INF" radiusEnd="200.0000">
+          <Start>5069.2820 1040.0000</Start>
+          <PI>5092.3882 1053.3403</PI>
+          <End>5103.2222 1061.1339</End>
+        </Spiral>
+        <Curve rot="cw" radius="200.0000" length="60.0000">
+          <Start>5103.2222 1061.1339</Start>
+          <Center>4986.4302 1223.4903</Center>
+          <End>5145.9855 1102.8997</End>
+          <PI>5127.7600 1078.7853</PI>
+        </Curve>
+        <Spiral rot="cw" spiType="clothoid" length="40.0000" radiusStart="200.0000" radiusEnd="INF">
+          <Start>5145.9855 1102.8997</Start>
+          <PI>5154.0325 1113.5469</PI>
+          <End>5167.9144 1136.3318</End>
+        </Spiral>
+        <Line length="100.0000">
+          <Start>5167.9144 1136.3318</Start>
+          <End>5219.9440 1221.7304</End>
+        </Line>
+      </CoordGeom>
+      <Profile name="EN-Demo profile">
+        <ProfAlign name="Design">
+          <PVI>0.0000 100.000</PVI>
+          <ParaCurve length="100.0000">160.0000 104.000</ParaCurve>
+          <PVI>320.0000 101.000</PVI>
+        </ProfAlign>
+      </Profile>
+    </Alignment>
+  </Alignments>
+</LandXML>

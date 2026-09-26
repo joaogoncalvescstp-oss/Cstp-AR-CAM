@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<LandXML xmlns="http://www.landxml.org/schema/LandXML-1.2" version="1.2" date="2026-09-26" time="12:00:00">
+  <Units>
+    <Metric areaUnit="squareMeter" linearUnit="meter" volumeUnit="cubicMeter" temperatureUnit="celsius" pressureUnit="milliBars" angularUnit="decimal degrees" directionUnit="decimal degrees"/>
+  </Units>
+  <CoordinateSystem name="EPSG:3763" epsgCode="3763"/>
+  <Project name="CSTP AR CAM demo"/>
+  <Application name="make_demo.py" manufacturer="CSTP"/>
+  <CgPoints name="Features">
+    <CgPoint name="SIGN-01" code="Road sign">-106143.1487 -87227.9696 101.250</CgPoint>
+    <CgPoint name="MH-01" code="Manhole">-106116.8333 -87101.0106 103.428</CgPoint>
+    <CgPoint name="TREE-07" code="Tree to remove">-106146.1459 -87025.4183 102.125</CgPoint>
+  </CgPoints>
+  <Alignments name="Demo">
+    <Alignment name="EN-Demo" length="320.0000" staStart="0.0000" desc="Tangent, clothoid, R200 arc, clothoid, tangent">
+      <CoordGeom>
+        <Line length="80.0000">
+          <Start>-106151.2600 -87277.5600</Start>
+          <End>-106130.5545 -87200.2859</End>
+        </Line>
+        <Spiral rot="cw" spiType="clothoid" length="40.0000" radiusStart="INF" radiusEnd="200.0000">
+          <Start>-106130.5545 -87200.2859</Start>
+          <PI>-106123.6490 -87174.5144</PI>
+          <End>-106121.4990 -87161.3427</End>
+        </Spiral>
+        <Curve rot="cw" radius="200.0000" length="60.0000">
+          <Start>-106121.4990 -87161.3427</Start>
+          <Center>-106318.8868 -87129.1238</Center>
+          <End>-106120.7937 -87101.5716</End>
+          <PI>-106116.6296 -87131.5104</PI>
+        </Curve>
+        <Spiral rot="cw" spiType="clothoid" length="40.0000" radiusStart="200.0000" radiusEnd="INF">
+          <Start>-106120.7937 -87101.5716</Start>
+          <PI>-106122.6323 -87088.3528</PI>
+          <End>-106128.9277 -87062.4255</End>
+        </Spiral>
+        <Line length="100.0000">
+          <Start>-106128.9277 -87062.4255</Start>
+          <End>-106152.5232 -86965.2491</End>
+        </Line>
+      </CoordGeom>
+      <Profile name="EN-Demo profile">
+        <ProfAlign name="Design">
+          <PVI>0.0000 100.000</PVI>
+          <ParaCurve length="100.0000">160.0000 104.000</ParaCurve>
+          <PVI>320.0000 101.000</PVI>
+        </ProfAlign>
+      </Profile>
+    </Alignment>
+  </Alignments>
+</LandXML>

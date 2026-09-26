@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <meta name="theme-color" content="#0b0f14">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="description" content="Field AR viewer for LandXML road/rail alignments with geotagged photo capture.">
+  <title>CSTP AR CAM</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="stylesheet" href="css/style.css">
+  <script src="vendor/proj4.js"></script>
+  <script src="vendor/piexif.js"></script>
+  <script type="importmap">
+    { "imports": {
+        "three": "./vendor/three/three.module.js",
+        "three/addons/": "./vendor/three/addons/"
+    } }
+  </script>
+  <script type="module" src="js/app.js"></script>
+</head>
+<body>
+  <main id="app">
+    <video id="video" playsinline muted autoplay></video>
+    <canvas id="ar"></canvas>
+    <div id="flash"></div>
+
+    <!-- Heads-up display -->
+    <header id="hud" class="glass">
+      <div class="hud-row">
+        <span id="hudAlign" class="hud-align">No alignment loaded</span>
+        <span id="hudSta" class="hud-sta">—</span>
+        <span id="hudOff" class="hud-off"></span>
+      </div>
+      <div class="hud-row hud-sub">
+        <span id="hudGps" class="pill">GPS —</span>
+        <span id="hudHdg" class="pill">Hdg —</span>
+        <span id="hudElev" class="pill hidden"></span>
+        <span id="hudWarn" class="pill warn hidden"></span>
+      </div>
+    </header>
+
+    <div id="compass" aria-hidden="true"><div id="compassTape"></div><div class="compass-mark"></div></div>
+    <div id="edgeArrow" class="hidden" aria-hidden="true">➤</div>
+    <div id="toast" role="status" aria-live="polite"></div>
+
+    <!-- Side tools -->
+    <aside id="tools">
+      <button class="tool" id="btnLock" title="Freeze GPS position" aria-pressed="false">📍</button>
+      <button class="tool" id="btnCalib" title="Live calibration">🧭</button>
+      <button class="tool hidden" id="btnTorch" title="Torch" aria-pressed="false">🔦</button>
+      <button class="tool hidden" id="btnZoom" title="Camera zoom">1×</button>
+    </aside>
+
+    <!-- Live calibration panel -->
+    <div id="calib" class="glass hidden">
+      <div class="calib-row"><span>Heading</span><button data-cal="hdg" data-d="-1">−1°</button><button data-cal="hdg" data-d="-0.2">−.2</button><output id="calHdg">0.0°</output><button data-cal="hdg" data-d="0.2">+.2</button><button data-cal="hdg" data-d="1">+1°</button></div>
+      <div class="calib-row"><span>Height</span><button data-cal="h" data-d="-0.5">−.5</button><button data-cal="h" data-d="-0.1">−.1</button><output id="calH">0.00 m</output><button data-cal="h" data-d="0.1">+.1</button><button data-cal="h" data-d="0.5">+.5</button></div>
+      <div class="calib-row"><span>FOV</span><button data-cal="fov" data-d="-2">−2</button><button data-cal="fov" data-d="-0.5">−.5</button><output id="calFov">66°</output><button data-cal="fov" data-d="0.5">+.5</button><button data-cal="fov" data-d="2">+2</button></div>
+      <div class="calib-actions">
+        <button id="btnAlignHeading" class="secondary">Align heading to alignment</button>
+        <button id="btnCalibDone" class="primary">Done</button>
+      </div>
+      <p class="hint">Stand on the alignment and point the phone along it, then tap “Align heading”. Fine-tune until the line sits on the ground marks.</p>
+    </div>
+
+    <!-- Bottom bar -->
+    <nav id="bar" class="glass">
+      <button class="bar-btn" data-sheet="files"><span>📂</span><small>Files</small></button>
+      <button class="bar-btn" data-sheet="map"><span>🗺️</span><small>Map</small></button>
+      <button id="shutter" aria-label="Take photo"><span></span></button>
+      <button class="bar-btn" data-sheet="photos"><span>🖼️</span><small>Photos</small><b id="photoCount" class="badge hidden">0</b></button>
+      <button class="bar-btn" data-sheet="settings"><span>⚙️</span><small>Settings</small></button>
+    </nav>
+
+    <!-- Start screen -->
+    <section id="start" class="overlay">
+      <div class="start-card">
+        <img src="icons/icon.svg" alt="" class="logo">
+        <h1>CSTP AR CAM</h1>
+        <p class="lead">Load a LandXML alignment and see it in augmented reality through your phone camera, using GPS, compass and motion sensors. Take geotagged photos with station &amp; offset stamped on them.</p>
+        <div id="startStatus" class="status"></div>
+        <button id="btnStart" class="primary big">Start AR camera</button>
+        <div class="row">
+          <button id="btnStartLoad" class="secondary">Load LandXML…</button>
+          <button id="btnStartDemo" class="secondary">Try demo</button>
+        </div>
+        <p id="secureWarn" class="warn-text hidden">This page is not served over HTTPS. Camera, GPS and compass need a secure (https://) connection.</p>
+        <p class="fine">Tip: add to the home screen to use it full-screen and offline.</p>
+      </div>
+    </section>
+
+    <!-- Files sheet -->
+    <section class="sheet" id="sheet-files" aria-label="Files and georeference">
+      <div class="sheet-head"><h2>Alignments</h2><button class="close" aria-label="Close">✕</button></div>
+      <div class="sheet-body">
+        <div class="row">
+          <button id="btnLoad" class="primary">Load LandXML…</button>
+          <button id="btnDemo" class="secondary">Demo</button>
+          <button id="btnClear" class="danger">Clear</button>
+        </div>
+        <div id="fileInfo" class="muted"></div>
+        <ul id="alignList" class="list"></ul>
+
+        <h3>Target alignment</h3>
+        <select id="activeAlign"><option value="auto">Nearest (auto)</option></select>
+
+        <h3>Coordinate system</h3>
+        <select id="crsSelect"></select>
+        <input id="crsCustom" class="hidden" placeholder="EPSG code, proj4 string or WKT" autocomplete="off" spellcheck="false">
+        <div id="anchorBox" class="hidden">
+          <label>Anchor station <input id="anchorSta" type="number" step="0.01" value="0"></label>
+          <button id="btnAnchor" class="secondary">Pin station here, facing along it</button>
+          <p class="hint">Without a coordinate system the alignment is placed relative to you: the chosen station is put at your GPS position, running in the direction the camera is pointing.</p>
+        </div>
+        <button id="btnApplyCrs" class="primary">Apply</button>
+        <div id="georefStatus" class="status"></div>
+      </div>
+    </section>
+
+    <!-- Map sheet -->
+    <section class="sheet tall" id="sheet-map" aria-label="Plan view">
+      <div class="sheet-head"><h2>Plan view</h2><button class="close" aria-label="Close">✕</button></div>
+      <div class="sheet-body map-body">
+        <canvas id="plan"></canvas>
+        <div class="row">
+          <button id="btnFit" class="secondary">Fit</button>
+          <button id="btnFollow" class="secondary">Follow me</button>
+          <button id="btnSimulate" class="secondary" title="Place a simulated position at the map centre (for testing without GPS)">Simulate here</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Photos sheet -->
+    <section class="sheet tall" id="sheet-photos" aria-label="Photos">
+      <div class="sheet-head"><h2>Photos</h2><button class="close" aria-label="Close">✕</button></div>
+      <div class="sheet-body">
+        <div class="row">
+          <button id="btnExportCsv" class="secondary">Export log (CSV)</button>
+          <button id="btnDownloadAll" class="secondary">Download all</button>
+          <button id="btnDeleteAll" class="danger">Delete all</button>
+        </div>
+        <div id="gallery" class="gallery"></div>
+        <p id="galleryEmpty" class="muted">No photos yet. Use the round shutter button.</p>
+      </div>
+    </section>
+
+    <!-- Settings sheet -->
+    <section class="sheet tall" id="sheet-settings" aria-label="Settings">
+      <div class="sheet-head"><h2>Settings</h2><button class="close" aria-label="Close">✕</button></div>
+      <div class="sheet-body form">
+        <h3>Display</h3>
+        <label>Height model
+          <select data-set="heightMode">
+            <option value="relative">Design profile, relative to nearest station</option>
+            <option value="absolute">Design profile, absolute (GPS / manual elevation)</option>
+            <option value="flat">Flat on the ground</option>
+          </select>
+        </label>
+        <label>Phone height above ground (m) <input type="number" step="0.05" data-set="eyeHeight"></label>
+        <label>Vertical offset / geoid correction (m) <input type="number" step="0.01" data-set="verticalOffset"></label>
+        <label>Manual ground elevation (absolute mode, blank = GPS) <input type="number" step="0.01" data-set="manualElevation" placeholder="GPS"></label>
+        <label>Offset lines (m, comma separated, + = right) <input type="text" data-set="offsets" placeholder="-3.5, 3.5"></label>
+        <label>Tick interval (m) <input type="number" step="1" min="1" data-set="tickInterval"></label>
+        <label>Label interval (m) <input type="number" step="10" min="1" data-set="labelInterval"></label>
+        <label>Label range (m) <input type="number" step="50" min="10" data-set="labelRange"></label>
+        <label>Line width (px) <input type="number" step="1" min="1" max="30" data-set="lineWidth"></label>
+        <label class="check"><input type="checkbox" data-set="showPoints"> Show CgPoints</label>
+
+        <h3>Sensors</h3>
+        <label>Heading correction (°) <input type="number" step="0.1" data-set="headingOffset"></label>
+        <label>Camera FOV, long side (°) <input type="number" step="0.5" min="20" max="120" data-set="fovLong"></label>
+        <label>Orientation smoothing <input type="range" min="0.05" max="1" step="0.05" data-set="smoothing"></label>
+
+        <h3>Photos</h3>
+        <label class="check"><input type="checkbox" data-set="photoOverlay"> Include AR overlay</label>
+        <label class="check"><input type="checkbox" data-set="photoStamp"> Stamp info box</label>
+        <label class="check"><input type="checkbox" data-set="photoClean"> Also keep a clean photo (no overlay)</label>
+        <label class="check"><input type="checkbox" data-set="photoAutoDownload"> Also download to device on capture</label>
+
+        <h3>Live sensor data</h3>
+        <table id="sensorTable" class="sensor-table"></table>
+        <p class="fine">CSTP AR CAM · <a href="https://github.com/joaogoncalvescstp-oss/Cstp-AR-CAM" target="_blank" rel="noopener">source</a></p>
+      </div>
+    </section>
+
+    <!-- Photo viewer -->
+    <section id="viewer" class="overlay hidden" aria-label="Photo viewer">
+      <img id="viewerImg" alt="Captured photo">
+      <div id="viewerMeta" class="glass"></div>
+      <textarea id="viewerNote" placeholder="Add a note…" rows="2"></textarea>
+      <div class="row viewer-actions">
+        <button id="vShare" class="primary">Share</button>
+        <button id="vDownload" class="secondary">Download</button>
+        <button id="vDelete" class="danger">Delete</button>
+        <button id="vClose" class="secondary">Close</button>
+      </div>
+    </section>
+
+    <input type="file" id="fileInput" accept=".xml,.landxml,.lxml,application/xml,text/xml" multiple hidden>
+  </main>
+</body>
+</html>
