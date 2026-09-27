@@ -123,6 +123,33 @@ export class PlanView {
       }
     });
 
+    // Surfaces: faint triangle edges, cached until the view changes.
+    this._drawSurfaces(ctx, w, h, X, Y, dpr);
+
+    // Pipe networks
+    for (const net of this.model.pipeNetworks || []) {
+      if (net.visible === false) continue;
+      ctx.strokeStyle = net.color;
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      for (const p of net.pipes) {
+        ctx.moveTo(X(p.a.x), Y(p.a.y));
+        ctx.lineTo(X(p.b.x), Y(p.b.y));
+      }
+      ctx.stroke();
+      ctx.fillStyle = net.color;
+      ctx.font = '10px system-ui, sans-serif';
+      for (const st of net.structs) {
+        if (st.dummy) continue;
+        const x = X(st.x), y = Y(st.y);
+        if (x < -10 || y < -10 || x > w + 10 || y > h + 10) continue;
+        ctx.beginPath();
+        ctx.arc(x, y, 4, 0, Math.PI * 2);
+        ctx.fill();
+        if (scale > 0.6) ctx.fillText(st.name.replace(/\s*\(.*\)$/, ''), x + 5, y - 4);
+      }
+    }
+
     ctx.fillStyle = '#fff';
     ctx.font = '11px system-ui, sans-serif';
     for (const p of this.model.points.slice(0, 2000)) {
@@ -180,6 +207,39 @@ export class PlanView {
     ctx.lineTo(w - 13, 38);
     ctx.closePath();
     ctx.fill();
+  }
+
+  _drawSurfaces(ctx, w, h, X, Y, dpr) {
+    const surfaces = (this.model.surfaces || []).filter((sf) => sf.visible !== false);
+    if (!surfaces.length) return;
+    const { cx, cy, scale } = this.view;
+    const key = [cx, cy, scale, w, h, dpr, surfaces.map((sf) => sf.name + sf.color).join()].join('|');
+    if (this._srfKey !== key) {
+      this._srfKey = key;
+      const c = (this._srfCanvas ||= document.createElement('canvas'));
+      c.width = Math.round(w * dpr);
+      c.height = Math.round(h * dpr);
+      const g = c.getContext('2d');
+      g.setTransform(dpr, 0, 0, dpr, 0, 0);
+      g.clearRect(0, 0, w, h);
+      for (const sf of surfaces) {
+        const P = sf.xyz, T = sf.tris;
+        g.strokeStyle = 'rgba(90,160,255,0.22)';
+        g.lineWidth = 1;
+        g.beginPath();
+        for (let t = 0; t < T.length; t += 3) {
+          const a = T[t] * 3, b = T[t + 1] * 3, d = T[t + 2] * 3;
+          const xa = X(P[a]), ya = Y(P[a + 1]);
+          if (xa < -200 || xa > w + 200 || ya < -200 || ya > h + 200) continue;
+          g.moveTo(xa, ya);
+          g.lineTo(X(P[b]), Y(P[b + 1]));
+          g.lineTo(X(P[d]), Y(P[d + 1]));
+          g.closePath();
+        }
+        g.stroke();
+      }
+    }
+    ctx.drawImage(this._srfCanvas, 0, 0, w, h);
   }
 
   _grid(ctx, w, h, X, Y) {

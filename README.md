@@ -40,6 +40,15 @@ mapped to this definition; other EPSG/WKT codes in a file are honoured.
   - Horizontal geometry: `Line`, `Curve` (arcs), `Spiral` (clothoids), `IrregularLine`, `Chain`
   - Vertical profiles: `PVI`, `ParaCurve`, `CircCurve`, `UnsymParaCurve`
   - `CgPoints` (shown as labelled markers), `CoordinateSystem` (EPSG / WKT), metric and imperial units
+- **Pipe networks** (Civil 3D LandXML `PipeNetworks`): pipes drawn as tubes at their invert elevations with real
+  diameters, structures as shafts from sump to rim with a rim ring and a label (name, type, rim, lowest invert);
+  sanitary/storm/water/gas coloured APWA-style; pipes whose end structure is missing from the export are counted
+  and reported instead of silently dropped. The HUD shows the nearest structure, its distance and invert.
+- **TIN surfaces** (LandXML `Surfaces`): translucent shaded mesh with triangle edges; the design surface under you
+  is used as the ground height (*Auto* height model), so drawings in the Saint Paul city vertical datum line up
+  without any GPS altitude.
+- **Point files** (`.csv`, `.txt`, `.pts`): PNEZD (point, northing, easting, elevation, description), like
+  FBK-Checker's import. Files without northing/easting are rejected with an explanation.
 - **AR view** (three.js)
   - Centreline, optional offset lines (e.g. lane edges `-12, 12` ft), station ticks and labels with design Z
   - US feet with `12+34.56` stationing (default) or metres with `1+234.56` (Settings ▸ Units)

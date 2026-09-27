@@ -11,6 +11,9 @@ import { latLonToENU } from './geo.js';
 import { offsetPolyline } from './landxml.js';
 import { staText, elevText } from './units.js';
 
+const UP = new THREE.Vector3(0, 1, 0);
+const shortName = (n) => String(n).replace(/\s*\(.*\)$/, '');
+
 export const PALETTE = ['#F1B434', '#00e5ff', '#ff4fd8', '#7CFF4F', '#ff8a00', '#b18cff', '#ff4f4f', '#4fa3ff'];
 
 function makeLabel(text, { color = '#ffffff', bg = 'rgba(7,29,73,0.78)', size = 0.045, sub = '' } = {}) {
@@ -86,6 +89,8 @@ export class ARScene {
       labelRange: 400,
       offsets: [],
       showPoints: true,
+      showPipes: true,
+      surfaceStyle: 'mesh', // 'mesh' | 'wire' | 'off'
       heightMode: 'relative', // 'flat' | 'relative' | 'absolute'
       eyeHeight: 1.6,
     };
@@ -213,6 +218,9 @@ export class ARScene {
       this.labels.push(nameLab);
     });
 
+    if (this.settings.showPipes) for (const net of model.pipeNetworks || []) if (net.visible !== false) this._buildNetwork(net, georef, yOf);
+    if (this.settings.surfaceStyle !== 'off') for (const sf of model.surfaces || []) if (sf.visible !== false) this._buildSurface(sf, georef, yOf);
+
     // Points
     if (this.settings.showPoints && model.points.length) {
       const segs = [];
@@ -230,6 +238,101 @@ export class ARScene {
       g.setPositions(segs);
       this.root.add(new LineSegments2(g, this._lineMaterial('#ffffff', 3)));
     }
+  }
+
+  // Pipes as tubes at invert + radius, structures as shafts from sump to rim.
+  _buildNetwork(net, georef, yOf) {
+    const u = georef.units;
+    const color = new THREE.Color(net.color);
+    const pipeMat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.85, depthTest: false });
+    const shaftMat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.35, depthTest: false });
+    const rimMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9, side: THREE.DoubleSide, depthTest: false });
+    const loc = (x, y) => this._enu(georef, x, y);
+    for (const p of net.pipes) {
+      if (p.a.z === null || p.b.z === null) continue;
+      const r = Math.max(0.05, (p.diameter * u) / 2);
+      const ea = loc(p.a.x, p.a.y), eb = loc(p.b.x, p.b.y);
+      const A = new THREE.Vector3(ea.e, yOf(p.a.z) + r, -ea.n);
+      const B = new THREE.Vector3(eb.e, yOf(p.b.z) + r, -eb.n);
+      const len = A.distanceTo(B);
+      if (len < 0.01) continue;
+      const g = new THREE.CylinderGeometry(r, r, len, 12, 1, true);
+      const m = new THREE.Mesh(g, pipeMat);
+      m.position.copy(A).add(B).multiplyScalar(0.5);
+      m.quaternion.setFromUnitVectors(UP, B.clone().sub(A).normalize());
+      m.renderOrder = 3;
+      this.root.add(m);
+    }
+    for (const st of net.structs) {
+      if (st.dummy) continue;
+      const e = loc(st.x, st.y);
+      const top = st.rim !== null ? yOf(st.rim) : null;
+      const bottom = st.sump !== null ? yOf(st.sump) : top !== null ? top - 2 : null;
+      if (top === null && bottom === null) continue;
+      const t = top ?? bottom + 2, b = bottom ?? top - 2;
+      const h = Math.max(0.1, t - b);
+      let g;
+      if (st.shape === 'rect') g = new THREE.BoxGeometry(Math.max(0.3, (st.width || 2) * u), h, Math.max(0.3, (st.length || 2) * u));
+      else g = new THREE.CylinderGeometry(Math.max(0.2, ((st.diameter || 4) * u) / 2), Math.max(0.2, ((st.diameter || 4) * u) / 2), h, 20, 1, true);
+      const shaft = new THREE.Mesh(g, shaftMat);
+      shaft.position.set(e.e, b + h / 2, -e.n);
+      shaft.renderOrder = 2;
+      this.root.add(shaft);
+      // Rim marker at ground level
+      const rr = Math.max(0.3, ((st.diameter || st.width || 3) * u) / 2);
+      const ring = new THREE.Mesh(new THREE.RingGeometry(rr * 0.8, rr, 28).rotateX(-Math.PI / 2), rimMat);
+      ring.position.set(e.e, t + 0.02, -e.n);
+      ring.renderOrder = 4;
+      this.root.add(ring);
+      const inv = [...st.inverts.values()].filter((v) => v !== null);
+      const sub = [st.rim !== null ? `Rim ${elevText(st.rim, u)}` : '', inv.length ? `Inv ${elevText(Math.min(...inv), u)}` : ''].filter(Boolean).join(' · ');
+      const lab = makeLabel(`${shortName(st.name)} ${st.desc && !/dummy/i.test(st.desc) ? '· ' + st.desc : ''}`.trim(), { color: net.color, sub, size: 0.036 });
+      lab.position.set(e.e, t + 1.2, -e.n);
+      lab.userData.kind = 'struct';
+      this.root.add(lab);
+      this.labels.push(lab);
+      // Short post from rim to label
+      const pg = new LineSegmentsGeometry();
+      pg.setPositions([e.e, t, -e.n, e.e, t + 1.2, -e.n]);
+      this.root.add(new LineSegments2(pg, this._lineMaterial('#ffffff', 2, { opacity: 0.8 })));
+    }
+  }
+
+  // TIN surface: translucent shaded mesh plus triangle edges.
+  _buildSurface(sf, georef, yOf) {
+    const P = sf.xyz, n = P.length / 3;
+    const pos = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) {
+      const e = this._enu(georef, P[i * 3], P[i * 3 + 1]);
+      pos[i * 3] = e.e;
+      pos[i * 3 + 1] = yOf(P[i * 3 + 2]);
+      pos[i * 3 + 2] = -e.n;
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    g.setIndex(new THREE.BufferAttribute(sf.tris, 1));
+    const color = new THREE.Color(sf.color);
+    if (this.settings.surfaceStyle === 'mesh') {
+      const mesh = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.2, side: THREE.DoubleSide, depthWrite: false, depthTest: false }));
+      mesh.renderOrder = 1;
+      this.root.add(mesh);
+    }
+    // Unique triangle edges
+    const T = sf.tris, seen = new Set(), idx = [];
+    for (let t = 0; t < T.length; t += 3) {
+      for (const [a, b] of [[T[t], T[t + 1]], [T[t + 1], T[t + 2]], [T[t + 2], T[t]]]) {
+        const k = a < b ? a * n + b : b * n + a;
+        if (seen.has(k)) continue;
+        seen.add(k);
+        idx.push(a, b);
+      }
+    }
+    const eg = new THREE.BufferGeometry();
+    eg.setAttribute('position', g.getAttribute('position'));
+    eg.setIndex(idx);
+    const edges = new THREE.LineSegments(eg, new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.5, depthTest: false }));
+    edges.renderOrder = 1;
+    this.root.add(edges);
   }
 
   _addLine(points, color, width, al, opts) {

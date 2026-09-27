@@ -1,6 +1,7 @@
 // CSTP AR CAM — main controller.
 
-import { parseLandXML, stationOffset, pointAtStation } from './landxml.js';
+import { parseLandXML, stationOffset, pointAtStation, surfaceElevation, nearestStructure } from './landxml.js';
+import { parsePointFile, isPointFile } from './points.js';
 import { Georef, CRS_PRESETS, resolveCRS, unitScale, latLonToENU, enuToLatLon, isRamseyCS } from './geo.js';
 import { Units, USFT, dLen, toDisp, fromDisp, staText, elevText } from './units.js';
 import { OrientationSource, GPSSource, MotionSource, WakeLock, vibrate } from './sensors.js';
@@ -19,9 +20,11 @@ const DEG = Math.PI / 180;
 // tickInterval, labelInterval, labelRange) are stored in display units.
 const LENGTH_KEYS = ['eyeHeight', 'verticalOffset', 'manualElevation', 'tickInterval', 'labelInterval', 'labelRange'];
 const DEFAULTS = {
-  schema: 2,
+  schema: 3,
   units: 'us',
-  heightMode: 'relative',
+  heightMode: 'auto',
+  surfaceStyle: 'mesh',
+  showPipes: true,
   eyeHeight: 5.25,
   verticalOffset: 0,
   manualElevation: '',
@@ -46,6 +49,8 @@ const DEFAULTS = {
 
 const stored = safeJSON(localStorage.getItem('settings'));
 // Settings from the first (metric, Portugal-oriented) version are replaced by the Saint Paul defaults.
+// Schema 2 -> 3 keeps the user's settings and switches to the new 'auto' height model.
+if (stored.schema === 2) Object.assign(stored, { schema: 3, heightMode: 'auto' });
 const settings = stored.schema === DEFAULTS.schema ? { ...DEFAULTS, ...stored } : { ...DEFAULTS };
 Units.system = settings.units;
 function safeJSON(s) {
@@ -113,16 +118,29 @@ function fmt(v, d = 2, unit = '') {
 
 // --- Loading files -------------------------------------------------------------
 
+// Utility colours (APWA-style: green sewers, blue water, yellow gas, red power).
+function networkColor(net) {
+  const n = `${net.name} ${net.type}`;
+  if (/san|sewer/i.test(n) && !/storm|strm/i.test(n)) return '#34c759';
+  if (/strm|storm|drain/i.test(n)) return '#2EC4B6';
+  if (/wat|wm\b/i.test(n)) return '#4F9BFF';
+  if (/gas/i.test(n)) return '#FFD60A';
+  if (/elec|pwr|power/i.test(n)) return '#ff3b30';
+  return '#34c759';
+}
+
 function rebuildModel() {
-  const alignments = [], points = [];
+  const alignments = [], points = [], pipeNetworks = [], surfaces = [];
   let cs = null, linearUnit = 'meter';
   for (const f of state.files) {
     alignments.push(...f.parsed.alignments);
     points.push(...f.parsed.points);
+    pipeNetworks.push(...(f.parsed.pipeNetworks || []));
+    surfaces.push(...(f.parsed.surfaces || []));
     if (!cs && f.parsed.coordinateSystem) cs = f.parsed.coordinateSystem;
     linearUnit = f.parsed.linearUnit || linearUnit;
   }
-  if (!alignments.length && !points.length) {
+  if (!alignments.length && !points.length && !pipeNetworks.length && !surfaces.length) {
     state.model = null;
   } else {
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
@@ -132,7 +150,15 @@ function rebuildModel() {
       maxX = Math.max(maxX, b.maxX); maxY = Math.max(maxY, b.maxY);
     }
     alignments.forEach((a, i) => { if (!a.color) a.color = PALETTE[i % PALETTE.length]; });
-    state.model = { alignments, points, coordinateSystem: cs, linearUnit, bbox: { minX, minY, maxX, maxY, cx: (minX + maxX) / 2, cy: (minY + maxY) / 2 } };
+    pipeNetworks.forEach((n) => {
+      if (!n.color) n.color = networkColor(n);
+      if (n.visible === undefined) n.visible = true;
+    });
+    surfaces.forEach((sf) => {
+      if (!sf.color) sf.color = '#5AA0FF';
+      if (sf.visible === undefined) sf.visible = true;
+    });
+    state.model = { alignments, points, pipeNetworks, surfaces, coordinateSystem: cs, linearUnit, bbox: { minX, minY, maxX, maxY, cx: (minX + maxX) / 2, cy: (minY + maxY) / 2 } };
   }
   state.visible = alignments.map(() => true);
   state.georef.units = unitScale(linearUnit);
@@ -142,14 +168,28 @@ function rebuildModel() {
 }
 
 async function loadText(name, text, { persist = true, quiet = false, georef = true } = {}) {
-  const parsed = parseLandXML(text);
+  const parsed = isPointFile(name, text) ? parsePointFile(text) : parseLandXML(text);
   state.files = state.files.filter((f) => f.name !== name);
   state.files.push({ name, text, parsed });
   rebuildModel();
   if (persist) FileStore.put(name, text).catch(() => {});
-  if (!quiet) toast(`Loaded ${parsed.alignments.length} alignment(s), ${parsed.points.length} point(s)`);
+  if (!quiet) toast(describeParsed(parsed), 4000);
   if (georef) await autoGeoref();
   scheduleRebuild();
+}
+
+function describeParsed(p) {
+  const parts = [];
+  if (p.alignments.length) parts.push(`${p.alignments.length} alignment(s)`);
+  if (p.points.length) parts.push(`${p.points.length} point(s)`);
+  const nets = p.pipeNetworks || [];
+  if (nets.length) {
+    const pipes = nets.reduce((a, n) => a + n.pipes.length, 0);
+    const skipped = nets.reduce((a, n) => a + n.skipped.length, 0);
+    parts.push(`${nets.length} pipe network(s), ${pipes} pipes` + (skipped ? ` (${skipped} skipped: structures missing in file)` : ''));
+  }
+  for (const sf of p.surfaces || []) parts.push(`surface ${sf.name} (${(sf.tris.length / 3).toLocaleString()} triangles)`);
+  return 'Loaded ' + parts.join(', ');
 }
 
 async function loadFiles(fileList) {
@@ -246,6 +286,28 @@ function renderAlignList() {
     o.textContent = al.name;
     sel.appendChild(o);
   });
+  const addLayer = (obj, title, detail) => {
+    const li = document.createElement('li');
+    li.innerHTML = `<input type="checkbox" ${obj.visible ? 'checked' : ''} aria-label="Show"><input type="color" value="${obj.color}" aria-label="Colour"><div class="meta"><b></b><small></small></div>`;
+    li.querySelector('b').textContent = title;
+    li.querySelector('small').textContent = detail;
+    li.querySelector('input[type=checkbox]').addEventListener('change', (e) => {
+      obj.visible = e.target.checked;
+      scheduleRebuild();
+    });
+    li.querySelector('input[type=color]').addEventListener('input', (e) => {
+      obj.color = e.target.value;
+      scheduleRebuild();
+    });
+    ul.appendChild(li);
+  };
+  for (const n of m ? m.pipeNetworks : []) {
+    const structs = n.structs.filter((x) => !x.dummy).length;
+    addLayer(n, `⛁ ${n.name}`, `${structs} structures · ${n.pipes.length} pipes` + (n.skipped.length ? ` · ${n.skipped.length} pipes skipped (structure missing in file)` : ''));
+  }
+  for (const sf of m ? m.surfaces : []) {
+    addLayer(sf, `◭ ${sf.name}`, `surface · ${(sf.xyz.length / 3).toLocaleString()} points · ${(sf.tris.length / 3).toLocaleString()} triangles`);
+  }
   sel.value = settings.activeAlign;
   if (sel.value !== settings.activeAlign) sel.value = 'auto';
 }
@@ -420,6 +482,8 @@ function applySettingsToEngines() {
     labelRange: fromDisp(Math.max(10, Number(settings.labelRange) || 1300)),
     lineWidth: Math.max(1, Number(settings.lineWidth) || 6),
     showPoints: !!settings.showPoints,
+    showPipes: settings.showPipes !== false,
+    surfaceStyle: settings.surfaceStyle || 'mesh',
     offsets: String(settings.offsets || '').split(/[,;\s]+/).map(Number).filter((v) => Number.isFinite(v) && v !== 0).map(fromDisp),
   });
   plan.units = state ? state.georef.units : 1;
@@ -449,7 +513,7 @@ function updateUnitLabels() {
   if (off) off.placeholder = Units.system === 'us' ? '-12, 12' : '-3.5, 3.5';
 }
 
-const GEOMETRY_KEYS = new Set(['heightMode', 'tickInterval', 'labelInterval', 'lineWidth', 'showPoints', 'offsets']);
+const GEOMETRY_KEYS = new Set(['heightMode', 'tickInterval', 'labelInterval', 'lineWidth', 'showPoints', 'offsets', 'surfaceStyle', 'showPipes']);
 $$('[data-set]').forEach((el) => {
   const k = el.dataset.set;
   if (k === 'units') {
@@ -831,6 +895,7 @@ function maybeRebuild(pos) {
 // --- Main loop -------------------------------------------------------------------------
 
 let lastHud = 0;
+let frameCount = 0;
 function frame(t) {
   requestAnimationFrame(frame);
   if (!state.started) return;
@@ -868,10 +933,21 @@ function frame(t) {
       ar.setNearest([ne.e, y, -ne.n]);
     } else ar.setNearest(null);
 
+    // Design surface under the user (file units), and the nearest structure.
+    state.surfaceZ = null;
+    for (const sf of state.model.surfaces) {
+      if (!sf.visible) continue;
+      const z = surfaceElevation(sf, g.x, g.y);
+      if (z !== null) { state.surfaceZ = z; break; }
+    }
+    state.nearStruct = settings.showPipes ? nearestStructure(state.model.pipeNetworks.filter((n) => n.visible), g.x, g.y) : null;
+
     // Height model
     let ground = 0;
-    if (ar.settings.heightMode === 'relative' && best && best.so.z !== null) ground = best.so.z * u;
-    else if (ar.settings.heightMode === 'absolute') {
+    const mode = ar.settings.heightMode;
+    if ((mode === 'auto' || mode === 'surface') && state.surfaceZ !== null) ground = state.surfaceZ * u;
+    else if ((mode === 'relative' || mode === 'auto') && best && best.so.z !== null) ground = best.so.z * u;
+    else if (mode === 'absolute') {
       const manual = settings.manualElevation;
       ground = manual !== '' && manual !== null && Number.isFinite(+manual) ? fromDisp(+manual) : (pos.alt ?? 0) - ar.settings.eyeHeight;
     }
@@ -883,7 +959,9 @@ function frame(t) {
   }
 
   ar.setPose(userENU.e, userENU.n, q);
-  ar.render();
+  // A tall panel covers most of the camera view: redraw less often to keep the UI smooth.
+  const covered = $('.sheet.tall.open');
+  if (!covered || (frameCount++ % 4) === 0) ar.render();
   updateEdgeArrow();
   updateCompass();
 
@@ -912,11 +990,36 @@ function updateHUD() {
       elev.classList.remove('hidden');
       elev.textContent = `Z ${elevText(n.so.z, u)}` + (n.so.beyond ? (n.so.i === 0 ? ' · before start' : ' · past end') : '');
     } else elev.classList.add('hidden');
+  } else if (state.nearStruct) {
+    // No alignment: lead with the nearest structure.
+    const ns = state.nearStruct;
+    $('#hudAlign').textContent = ns.net.name;
+    $('#hudSta').textContent = ns.struct.name.replace(/\s*\(.*\)$/, '');
+    $('#hudOff').textContent = dLen(ns.distance * u, 1);
+    $('#hudElev').classList.add('hidden');
   } else {
     $('#hudAlign').textContent = state.model ? (state.georef.ready ? 'Waiting for GPS…' : 'Not georeferenced') : 'No alignment loaded';
     $('#hudSta').textContent = '—';
     $('#hudOff').textContent = '';
     $('#hudElev').classList.add('hidden');
+  }
+  const ns = state.nearStruct;
+  const hs = $('#hudStruct');
+  if (ns && n) {
+    const inv = [...ns.struct.inverts.values()].filter((v) => v !== null);
+    hs.textContent = `${ns.struct.name.replace(/\s*\(.*\)$/, '')} ${dLen(ns.distance * u, 0)}` + (inv.length ? ` · inv ${elevText(Math.min(...inv), u)}` : '');
+    hs.classList.remove('hidden');
+  } else if (ns) {
+    const inv = [...ns.struct.inverts.values()].filter((v) => v !== null);
+    hs.textContent = `${ns.struct.desc || 'structure'}${ns.struct.rim !== null ? ` · rim ${elevText(ns.struct.rim, u)}` : ''}${inv.length ? ` · inv ${elevText(Math.min(...inv), u)}` : ''}`;
+    hs.classList.remove('hidden');
+  } else hs.classList.add('hidden');
+  // Design surface elevation under the user shares the Z pill.
+  if (state.surfaceZ !== null && state.surfaceZ !== undefined) {
+    const el = $('#hudElev');
+    const base = el.classList.contains('hidden') ? '' : el.textContent + ' · ';
+    el.textContent = `${base}Srf ${elevText(state.surfaceZ, u)}`;
+    el.classList.remove('hidden');
   }
   const g = $('#hudGps');
   if (pos) {

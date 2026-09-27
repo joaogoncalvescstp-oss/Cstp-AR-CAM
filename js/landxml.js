@@ -239,10 +239,16 @@ export function parseLandXML(text, { step = SAMPLE_STEP } = {}) {
 
   // Units
   let linearUnit = 'meter';
+  let diameterUnit = null;
   const metric = descendants(root, 'Metric')[0];
   const imperial = descendants(root, 'Imperial')[0];
-  if (imperial) linearUnit = imperial.getAttribute('linearUnit') || 'USSurveyFoot';
-  else if (metric) linearUnit = metric.getAttribute('linearUnit') || 'meter';
+  if (imperial) {
+    linearUnit = imperial.getAttribute('linearUnit') || 'USSurveyFoot';
+    diameterUnit = imperial.getAttribute('diameterUnit') || 'inch';
+  } else if (metric) {
+    linearUnit = metric.getAttribute('linearUnit') || 'meter';
+    diameterUnit = metric.getAttribute('diameterUnit') || 'millimeter';
+  }
 
   // Coordinate system
   const csEl = descendants(root, 'CoordinateSystem')[0];
@@ -311,12 +317,188 @@ export function parseLandXML(text, { step = SAMPLE_STEP } = {}) {
     });
   }
 
-  if (!alignments.length && !points.length) throw new Error('No alignments or points found in the file.');
+  const pipeNetworks = parsePipeNetworks(root, diameterScale(diameterUnit, linearUnit));
+  const surfaces = parseSurfaces(root);
 
-  return { alignments, points, coordinateSystem, linearUnit, bbox: bbox(alignments, points) };
+  if (!alignments.length && !points.length && !pipeNetworks.length && !surfaces.length) {
+    throw new Error('No alignments, points, pipe networks or surfaces found in the file.');
+  }
+
+  return { alignments, points, pipeNetworks, surfaces, coordinateSystem, linearUnit, bbox: bbox(alignments, points, pipeNetworks, surfaces) };
 }
 
-function bbox(alignments, points) {
+// --- Pipe networks -----------------------------------------------------------
+
+const LEN_M = { meter: 1, metre: 1, millimeter: 0.001, centimeter: 0.01, foot: 0.3048, ussurveyfoot: 1200 / 3937, internationalfoot: 0.3048, inch: 0.0254 };
+// File units per pipe-diameter unit (e.g. inches -> feet = 1/12).
+function diameterScale(diameterUnit, linearUnit) {
+  const d = LEN_M[String(diameterUnit || '').toLowerCase()];
+  const l = LEN_M[String(linearUnit || 'meter').toLowerCase()] || 1;
+  return d ? d / l : 1;
+}
+
+function parsePipeNetworks(root, dScale) {
+  const nets = [];
+  for (const net of descendants(root, 'PipeNetwork')) {
+    const structs = new Map();
+    for (const st of descendants(net, 'Struct')) {
+      const c = readPoint(firstChild(st, 'Center'), new Map());
+      if (!c) continue;
+      const circ = firstChild(st, 'CircStruct');
+      const rect = firstChild(st, 'RectStruct');
+      const inverts = new Map();
+      for (const inv of childrenByName(st, 'Invert')) {
+        const ref = inv.getAttribute('refPipe');
+        if (ref) inverts.set(ref + '|' + (inv.getAttribute('flowDir') || ''), attrNum(inv, 'elev'));
+        if (ref && !inverts.has(ref)) inverts.set(ref, attrNum(inv, 'elev'));
+      }
+      const name = st.getAttribute('name') || '';
+      const rim = attrNum(st, 'elevRim', null);
+      structs.set(name, {
+        name,
+        desc: st.getAttribute('desc') || '',
+        x: c.x,
+        y: c.y,
+        rim: rim === 0 ? null : rim,
+        sump: attrNum(st, 'elevSump', null),
+        dummy: /null struct/i.test(name + ' ' + (st.getAttribute('desc') || '')),
+        shape: rect ? 'rect' : 'circ',
+        diameter: circ ? attrNum(circ, 'diameter', 48) * dScale : null,
+        length: rect ? attrNum(rect, 'length', 24) * dScale : null,
+        width: rect ? attrNum(rect, 'width', 24) * dScale : null,
+        inverts,
+      });
+    }
+    const pipes = [];
+    const skipped = [];
+    for (const pp of descendants(net, 'Pipe')) {
+      const name = pp.getAttribute('name') || '';
+      const a = structs.get(pp.getAttribute('refStart'));
+      const b = structs.get(pp.getAttribute('refEnd'));
+      // A pipe whose start/end structure is missing from the export has no position.
+      if (!a || !b) {
+        skipped.push(name);
+        continue;
+      }
+      const shape = firstChild(pp, 'CircPipe') || firstChild(pp, 'RectPipe') || firstChild(pp, 'EggPipe') || firstChild(pp, 'ElliPipe');
+      const dia = shape ? attrNum(shape, 'diameter', null) ?? attrNum(shape, 'height', 12) : 12;
+      const invA = a.inverts.get(name + '|out') ?? a.inverts.get(name) ?? a.sump;
+      const invB = b.inverts.get(name + '|in') ?? b.inverts.get(name) ?? b.sump;
+      pipes.push({
+        name,
+        desc: pp.getAttribute('desc') || '',
+        start: a.name,
+        end: b.name,
+        diameter: dia * dScale,
+        slope: attrNum(pp, 'slope', null),
+        a: { x: a.x, y: a.y, z: invA },
+        b: { x: b.x, y: b.y, z: invB },
+      });
+    }
+    if (!structs.size && !pipes.length) continue;
+    nets.push({
+      name: net.getAttribute('name') || `Network ${nets.length + 1}`,
+      type: net.getAttribute('pipeNetType') || '',
+      structs: [...structs.values()],
+      pipes,
+      skipped,
+    });
+  }
+  return nets;
+}
+
+// --- TIN surfaces ---------------------------------------------------------
+
+function parseSurfaces(root) {
+  const out = [];
+  for (const sf of descendants(root, 'Surface')) {
+    const def = descendants(sf, 'Definition')[0];
+    if (!def) continue;
+    const ids = new Map();
+    const xyz = [];
+    for (const p of descendants(def, 'P')) {
+      const v = nums(p.textContent);
+      if (v.length < 3) continue;
+      ids.set(p.getAttribute('id'), xyz.length / 3);
+      xyz.push(v[1], v[0], v[2]); // N E Z -> x y z
+    }
+    const tris = [];
+    for (const f of descendants(def, 'F')) {
+      if (f.getAttribute('i') === '1') continue; // invisible (outside boundary)
+      const t = (f.textContent || '').trim().split(/\s+/);
+      if (t.length < 3) continue;
+      const a = ids.get(t[0]), b = ids.get(t[1]), c = ids.get(t[2]);
+      if (a === undefined || b === undefined || c === undefined) continue;
+      tris.push(a, b, c);
+    }
+    if (!tris.length) continue;
+    out.push({
+      name: sf.getAttribute('name') || `Surface ${out.length + 1}`,
+      desc: sf.getAttribute('desc') || '',
+      xyz: Float64Array.from(xyz),
+      tris: Uint32Array.from(tris),
+    });
+  }
+  return out;
+}
+
+// Elevation of a surface at (x, y) using a lazily built grid index. null if outside.
+export function surfaceElevation(srf, x, y) {
+  if (!srf._index) srf._index = buildTriIndex(srf);
+  const g = srf._index;
+  const cx = Math.floor((x - g.minX) / g.cell), cy = Math.floor((y - g.minY) / g.cell);
+  if (cx < 0 || cy < 0 || cx >= g.nx || cy >= g.ny) return null;
+  const list = g.cells[cy * g.nx + cx];
+  if (!list) return null;
+  const P = srf.xyz, T = srf.tris;
+  for (const t of list) {
+    const i = T[t] * 3, j = T[t + 1] * 3, k = T[t + 2] * 3;
+    const x1 = P[i], y1 = P[i + 1], x2 = P[j], y2 = P[j + 1], x3 = P[k], y3 = P[k + 1];
+    const d = (y2 - y3) * (x1 - x3) + (x3 - x2) * (y1 - y3);
+    if (d === 0) continue;
+    const l1 = ((y2 - y3) * (x - x3) + (x3 - x2) * (y - y3)) / d;
+    const l2 = ((y3 - y1) * (x - x3) + (x1 - x3) * (y - y3)) / d;
+    const l3 = 1 - l1 - l2;
+    if (l1 >= -1e-9 && l2 >= -1e-9 && l3 >= -1e-9) return l1 * P[i + 2] + l2 * P[j + 2] + l3 * P[k + 2];
+  }
+  return null;
+}
+
+function buildTriIndex(srf) {
+  const P = srf.xyz, T = srf.tris;
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (let i = 0; i < P.length; i += 3) {
+    minX = Math.min(minX, P[i]); maxX = Math.max(maxX, P[i]);
+    minY = Math.min(minY, P[i + 1]); maxY = Math.max(maxY, P[i + 1]);
+  }
+  const ntri = T.length / 3;
+  const cell = Math.max(1e-6, Math.sqrt(((maxX - minX) * (maxY - minY)) / Math.max(1, ntri)) * 2);
+  const nx = Math.max(1, Math.ceil((maxX - minX) / cell) + 1), ny = Math.max(1, Math.ceil((maxY - minY) / cell) + 1);
+  const cells = new Array(nx * ny);
+  for (let t = 0; t < T.length; t += 3) {
+    const xs = [P[T[t] * 3], P[T[t + 1] * 3], P[T[t + 2] * 3]];
+    const ys = [P[T[t] * 3 + 1], P[T[t + 1] * 3 + 1], P[T[t + 2] * 3 + 1]];
+    const x0 = Math.floor((Math.min(...xs) - minX) / cell), x1 = Math.floor((Math.max(...xs) - minX) / cell);
+    const y0 = Math.floor((Math.min(...ys) - minY) / cell), y1 = Math.floor((Math.max(...ys) - minY) / cell);
+    for (let cy = y0; cy <= y1; cy++) for (let cx = x0; cx <= x1; cx++) (cells[cy * nx + cx] ||= []).push(t);
+  }
+  return { minX, minY, cell, nx, ny, cells };
+}
+
+// Nearest structure (manhole/catch basin) to (x, y) across all networks.
+export function nearestStructure(nets, x, y) {
+  let best = null;
+  for (const n of nets) {
+    for (const s of n.structs) {
+      if (s.dummy) continue;
+      const d = Math.hypot(s.x - x, s.y - y);
+      if (!best || d < best.distance) best = { net: n, struct: s, distance: d };
+    }
+  }
+  return best;
+}
+
+function bbox(alignments, points, nets = [], surfaces = []) {
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
   const add = (p) => {
     if (p.x < minX) minX = p.x;
@@ -326,6 +508,10 @@ function bbox(alignments, points) {
   };
   alignments.forEach((a) => a.pts.forEach(add));
   points.forEach(add);
+  nets.forEach((n) => n.structs.forEach((s) => !s.dummy && add(s)));
+  surfaces.forEach((sf) => {
+    for (let i = 0; i < sf.xyz.length; i += 3) add({ x: sf.xyz[i], y: sf.xyz[i + 1] });
+  });
   return { minX, minY, maxX, maxY, cx: (minX + maxX) / 2, cy: (minY + maxY) / 2 };
 }
 
