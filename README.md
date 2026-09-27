@@ -96,7 +96,7 @@ On a desktop browser without sensors you can drag to look around and use **Map �
 
 ## Hosting
 
-Any static host with HTTPS works. The included workflow `.github/workflows/pages.yml` deploys to GitHub Pages on
+Any static host with HTTPS works. The workflow `.github/workflows/static.yml` deploys to GitHub Pages on
 every push to `main` (enable *Settings ▸ Pages ▸ Source: GitHub Actions* once).
 
 Local testing: `npx http-server -p 8080` and open `http://localhost:8080` (localhost counts as secure). To test on a
