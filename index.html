@@ -179,10 +179,14 @@
             <option value="auto">Auto: design surface under me, else nearest station</option>
             <option value="surface">Design surface (TIN) under me</option>
             <option value="relative">Design profile, relative to nearest station</option>
-            <option value="absolute">Design profile, absolute (GPS / manual elevation)</option>
+            <option value="absolute">Absolute: GPS elevation in drawing datum (or manual)</option>
             <option value="flat">Flat on the ground</option>
           </select>
         </label>
+        <label>Drawing vertical datum adjustment (<span class="u">ft</span>) <input type="number" step="0.01" data-set="datumAdjust"></label>
+        <p class="hint">Saint Paul city datum = sea level − 694.10 ft, so the default is −694.10. Use 0 for drawings in NAVD88.</p>
+        <label>Geoid height N (<span class="u">ft</span>) <input type="number" step="0.1" data-set="geoidHeight"></label>
+        <p class="hint">Sea-level elevation = GPS ellipsoid height − N. About −90.2 ft (−27.5 m) in Saint Paul; check with NGS GEOID18 for your site.</p>
         <label>Phone height above ground (<span class="u">ft</span>) <input type="number" step="0.05" data-set="eyeHeight"></label>
         <label>Vertical offset / geoid correction (<span class="u">ft</span>) <input type="number" step="0.01" data-set="verticalOffset"></label>
         <label>Manual ground elevation, <span class="u">ft</span> (absolute mode, blank = GPS) <input type="number" step="0.01" data-set="manualElevation" placeholder="GPS"></label>

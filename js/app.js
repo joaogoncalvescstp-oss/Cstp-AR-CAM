@@ -18,7 +18,7 @@ const DEG = Math.PI / 180;
 
 // Length settings (eyeHeight, verticalOffset, manualElevation, offsets,
 // tickInterval, labelInterval, labelRange) are stored in display units.
-const LENGTH_KEYS = ['eyeHeight', 'verticalOffset', 'manualElevation', 'tickInterval', 'labelInterval', 'labelRange'];
+const LENGTH_KEYS = ['eyeHeight', 'verticalOffset', 'manualElevation', 'tickInterval', 'labelInterval', 'labelRange', 'datumAdjust', 'geoidHeight'];
 const DEFAULTS = {
   schema: 3,
   units: 'us',
@@ -27,6 +27,10 @@ const DEFAULTS = {
   showPipes: true,
   eyeHeight: 5.25,
   verticalOffset: 0,
+  // Saint Paul city datum: drawing elevation = sea-level (NAVD88) elevation - 694.10 ft.
+  datumAdjust: -694.1,
+  // Geoid height N in Saint Paul (GEOID18, approx.): sea-level elevation = GPS ellipsoid height - N.
+  geoidHeight: -90.2,
   manualElevation: '',
   offsets: '',
   tickInterval: 25,
@@ -51,6 +55,11 @@ const stored = safeJSON(localStorage.getItem('settings'));
 // Settings from the first (metric, Portugal-oriented) version are replaced by the Saint Paul defaults.
 // Schema 2 -> 3 keeps the user's settings and switches to the new 'auto' height model.
 if (stored.schema === 2) Object.assign(stored, { schema: 3, heightMode: 'auto' });
+if (stored.schema === 3 && stored.datumAdjust === undefined) {
+  // Added later: seed the Saint Paul values in the user's display units.
+  const k = stored.units === 'metric' ? 1200 / 3937 : 1;
+  Object.assign(stored, { datumAdjust: +(-694.1 * k).toFixed(4), geoidHeight: +(-90.2 * k).toFixed(4) });
+}
 const settings = stored.schema === DEFAULTS.schema ? { ...DEFAULTS, ...stored } : { ...DEFAULTS };
 Units.system = settings.units;
 function safeJSON(s) {
@@ -82,6 +91,16 @@ const ar = new ARScene($('#ar'));
 const plan = new PlanView($('#plan'));
 
 applySettingsToEngines();
+
+// GPS ellipsoid height (m) -> elevation in the drawings' vertical datum (m).
+function gpsToDrawingElev(h) {
+  if (h === null || h === undefined) return null;
+  return h - fromDisp(+settings.geoidHeight || 0) + fromDisp(+settings.datumAdjust || 0);
+}
+// GPS ellipsoid height (m) -> sea-level (NAVD88) elevation (m).
+function gpsToSeaLevel(h) {
+  return h === null || h === undefined ? null : h - fromDisp(+settings.geoidHeight || 0);
+}
 
 // --- UI helpers ---------------------------------------------------------------
 
@@ -718,13 +737,13 @@ async function takePhoto() {
   const description = info.alignment ? `${info.alignment} ${info.station} ${offTxt}` : 'CSTP AR CAM';
   const stamp = [
     `CSTP AR CAM · ${d.toLocaleString()}`,
-    pos ? `Lat ${pos.lat.toFixed(7)}  Lon ${pos.lon.toFixed(7)}  ±${dLen(pos.accuracy, 1)}${pos.alt !== null ? `  GPS alt ${dLen(pos.alt, 1)}` : ''}` : 'No GPS fix',
+    pos ? `Lat ${pos.lat.toFixed(7)}  Lon ${pos.lon.toFixed(7)}  ±${dLen(pos.accuracy, 1)}${pos.alt !== null ? `  GPS elev ${dLen(gpsToDrawingElev(pos.alt), 1)} (datum ${(+settings.datumAdjust).toFixed(2)})` : ''}` : 'No GPS fix',
     `Heading ${heading.toFixed(1)}°  Pitch ${pitch.toFixed(1)}°`,
   ];
   if (info.alignment) stamp.push(`${info.alignment} · Sta ${info.station} · ${offTxt}${info.designZ !== undefined ? ` · Z ${info.designZ.toFixed(2)}` : ''}`);
   if (info.gridX !== undefined && state.georef.mode === 'crs') stamp.push(`N ${info.gridY.toFixed(2)}  E ${info.gridX.toFixed(2)}  (${info.crs})`);
 
-  const meta = { time, lat: pos ? pos.lat : null, lon: pos ? pos.lon : null, alt: pos ? pos.alt : null, accuracy: pos ? pos.accuracy : null, heading, description, info };
+  const meta = { time, lat: pos ? pos.lat : null, lon: pos ? pos.lon : null, alt: pos ? gpsToSeaLevel(pos.alt) : null, accuracy: pos ? pos.accuracy : null, heading, description, info };
 
   // Visual + haptic feedback
   $('#flash').classList.add('on');
@@ -949,7 +968,7 @@ function frame(t) {
     else if ((mode === 'relative' || mode === 'auto') && best && best.so.z !== null) ground = best.so.z * u;
     else if (mode === 'absolute') {
       const manual = settings.manualElevation;
-      ground = manual !== '' && manual !== null && Number.isFinite(+manual) ? fromDisp(+manual) : (pos.alt ?? 0) - ar.settings.eyeHeight;
+      ground = manual !== '' && manual !== null && Number.isFinite(+manual) ? fromDisp(+manual) : (gpsToDrawingElev(pos.alt) ?? 0) - ar.settings.eyeHeight;
     }
     const vOff = fromDisp(+settings.verticalOffset || 0);
     ar.setGroundElevation(ground + (ar.settings.heightMode === 'flat' ? 0 : vOff));
@@ -1112,6 +1131,8 @@ function updateSensorTable() {
     ['GPS (smoothed)', pos ? `${pos.lat.toFixed(7)}, ${pos.lon.toFixed(7)}` : gps.error || 'waiting'],
     ['GPS accuracy', pos ? `±${dLen(pos.accuracy, 1)} (raw ±${dLen(raw && raw.accuracy, 1)})` : '—'],
     ['GPS altitude (ellipsoid)', pos ? `${dLen(pos.alt, 1)} ±${dLen(pos.altAccuracy, 1)}` : '—'],
+    ['GPS elevation, sea level', pos ? dLen(gpsToSeaLevel(pos.alt), 2) : '—'],
+    ['GPS elevation, drawing datum', pos ? `${dLen(gpsToDrawingElev(pos.alt), 2)} (adj ${(+settings.datumAdjust).toFixed(2)} ${Units.label})` : '—'],
     ['Speed / course', raw ? `${fmt(raw.speed, 1)} m/s / ${fmt(raw.heading, 0)}°` : '—'],
     ['Grid position', state.userGrid ? `N ${state.userGrid.y.toFixed(3)} E ${state.userGrid.x.toFixed(3)}` : '—'],
     ['Accelerometer (g incl.)', a ? `${fmt(a.x, 2)}, ${fmt(a.y, 2)}, ${fmt(a.z, 2)} m/s²` : 'n/a'],

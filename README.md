@@ -82,9 +82,11 @@ mapped to this definition; other EPSG/WKT codes in a file are honoured.
 
 **Accuracy tips:** phone GPS is typically ±2–5 m and compasses drift a few degrees. Use 🧭 to fine-tune:
 stand on a known point of the alignment, point along it and tap *Align heading to alignment*. Use 📍 to freeze
-the position while photographing. Elevations from GPS are ellipsoidal — in Saint Paul NAVD88 elevations are roughly 90 ft
-(≈ 27.5 m) higher than GPS ellipsoid heights, so use the *vertical offset / geoid correction* setting in
-*absolute* mode, or keep the default *relative* height model.
+the position while photographing. Vertical datum: Saint Paul drawings use the **city datum = sea level − 694.10 ft** (setting
+*Drawing vertical datum adjustment*, default −694.10; use 0 for NAVD88 drawings). In *absolute* mode the GPS ellipsoid
+height is converted with the geoid height N (default −90.2 ft ≈ −27.5 m for Saint Paul; verify with NGS GEOID18) and
+then the datum adjustment. The default *Auto* height model needs neither: it takes the ground from the design surface
+or the nearest alignment station.
 
 Try it without a file: **Try demo** places a 1050 ft road (tangent, clothoid, R650 ft curve, clothoid, tangent, with a
 crest vertical curve) 16 ft in front of you. **Saint Paul sample** (`samples/saint-paul-ramsey.xml`) is the same road
