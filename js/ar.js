@@ -11,16 +11,16 @@ import { latLonToENU } from './geo.js';
 import { offsetPolyline } from './landxml.js';
 import { staText, elevText } from './units.js';
 
-export const PALETTE = ['#ffd400', '#00e5ff', '#ff4fd8', '#7CFF4F', '#ff8a00', '#b18cff', '#ff4f4f', '#4fa3ff'];
+export const PALETTE = ['#F1B434', '#00e5ff', '#ff4fd8', '#7CFF4F', '#ff8a00', '#b18cff', '#ff4f4f', '#4fa3ff'];
 
-function makeLabel(text, { color = '#ffffff', bg = 'rgba(0,0,0,0.65)', size = 0.045, sub = '' } = {}) {
+function makeLabel(text, { color = '#ffffff', bg = 'rgba(7,29,73,0.78)', size = 0.045, sub = '' } = {}) {
   const pad = 14, fs = 44, fs2 = 30;
   const c = document.createElement('canvas');
   const ctx = c.getContext('2d');
-  ctx.font = `600 ${fs}px system-ui, sans-serif`;
+  ctx.font = `700 ${fs}px -apple-system, "SF Pro Text", system-ui, sans-serif`;
   let w = ctx.measureText(text).width;
   if (sub) {
-    ctx.font = `500 ${fs2}px system-ui, sans-serif`;
+    ctx.font = `500 ${fs2}px -apple-system, "SF Pro Text", system-ui, sans-serif`;
     w = Math.max(w, ctx.measureText(sub).width);
   }
   c.width = Math.ceil(w + pad * 2);
@@ -34,12 +34,12 @@ function makeLabel(text, { color = '#ffffff', bg = 'rgba(0,0,0,0.65)', size = 0.
   ctx.lineWidth = 4;
   ctx.stroke();
   ctx.fillStyle = color;
-  ctx.font = `600 ${fs}px system-ui, sans-serif`;
+  ctx.font = `700 ${fs}px -apple-system, "SF Pro Text", system-ui, sans-serif`;
   ctx.textBaseline = 'top';
   ctx.fillText(text, pad, pad);
   if (sub) {
     ctx.fillStyle = '#ddd';
-    ctx.font = `500 ${fs2}px system-ui, sans-serif`;
+    ctx.font = `500 ${fs2}px -apple-system, "SF Pro Text", system-ui, sans-serif`;
     ctx.fillText(sub, pad, pad + fs + 6);
   }
   const tex = new THREE.CanvasTexture(c);

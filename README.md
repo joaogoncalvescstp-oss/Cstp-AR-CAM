@@ -9,6 +9,10 @@ Set up for **Saint Paul, Minnesota**: coordinates default to the **Ramsey County
 [FBK-Checker](https://joaogoncalvescstp-oss.github.io/FBK-Checker/), and distances and stationing are shown
 in US feet (`12+34.56`).
 
+The look (Big Rivers Blue / Sky Blue / gold, glass header with the Saint Paul logo, white nav buttons around a
+raised logo camera button, Polaroid photo strip and carousel viewer) follows
+[CstpTieCam](https://github.com/joaogoncalvescstp-oss/CstpTieCam).
+
 No build step, no server code, no external CDN: it is a static site (works offline after the first visit).
 
 ## Coordinate system (Ramsey County)

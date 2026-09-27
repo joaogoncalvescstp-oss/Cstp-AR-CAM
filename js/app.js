@@ -91,11 +91,13 @@ function toast(msg, ms = 2200) {
 
 function openSheet(name) {
   $$('.sheet').forEach((s) => s.classList.toggle('open', s.id === 'sheet-' + name));
+  $$('.bar-btn').forEach((b) => b.classList.toggle('active', b.dataset.sheet === name));
   if (name === 'map') requestAnimationFrame(() => plan.fit());
   if (name === 'photos') renderGallery();
 }
 function closeSheets() {
   $$('.sheet').forEach((s) => s.classList.remove('open'));
+  $$('.bar-btn').forEach((b) => b.classList.remove('active'));
 }
 
 $$('.bar-btn').forEach((b) => b.addEventListener('click', () => {
@@ -663,6 +665,10 @@ async function takePhoto() {
   // Visual + haptic feedback
   $('#flash').classList.add('on');
   setTimeout(() => $('#flash').classList.remove('on'), 60);
+  const cam = $('#shutter');
+  cam.classList.remove('bounce');
+  void cam.offsetWidth; // restart the animation
+  cam.classList.add('bounce');
   vibrate(40);
 
   try {
@@ -693,41 +699,80 @@ async function updatePhotoCount() {
   } catch { /* IndexedDB unavailable */ }
 }
 
+// Polaroid-style cards, newest first, each with a small random tilt.
 async function renderGallery() {
   const g = $('#gallery');
   g.innerHTML = '';
   const all = (await PhotoStore.all().catch(() => [])).reverse();
+  gallery.recs = all;
   $('#galleryEmpty').classList.toggle('hidden', all.length > 0);
-  for (const rec of all) {
+  all.forEach((rec, k) => {
     const b = document.createElement('button');
+    b.className = 'thumb-card' + (k === 0 ? ' newest' : '');
+    b.style.setProperty('--rot', `${((rec.id * 37) % 9) - 4}deg`);
+    b.style.animationDelay = `${Math.min(k, 12) * 0.04}s`;
     const img = document.createElement('img');
     img.src = rec.thumb;
     img.alt = rec.meta.description || 'photo';
-    const cap = document.createElement('small');
+    const cap = document.createElement('span');
+    cap.className = 'tcap';
     cap.textContent = (rec.meta.info && rec.meta.info.station) || new Date(rec.meta.time).toLocaleTimeString();
     b.append(img, cap);
-    b.addEventListener('click', () => openViewer(rec));
+    b.addEventListener('click', () => openViewer(k));
     g.appendChild(b);
-  }
+  });
 }
 
+// Carousel viewer
+const gallery = { recs: [], index: 0 };
 let viewerRec = null, viewerURL = null;
-function openViewer(rec) {
+function openViewer(k) {
+  const recs = gallery.recs;
+  if (!recs.length) return;
+  gallery.index = (k + recs.length) % recs.length;
+  const rec = recs[gallery.index];
   viewerRec = rec;
-  if (viewerURL) URL.revokeObjectURL(viewerURL);
-  viewerURL = URL.createObjectURL(rec.blob);
-  $('#viewerImg').src = viewerURL;
+  const img = $('#viewerImg');
+  img.classList.add('fade-out');
+  setTimeout(() => {
+    if (viewerURL) URL.revokeObjectURL(viewerURL);
+    viewerURL = URL.createObjectURL(rec.blob);
+    img.src = viewerURL;
+    img.onload = () => img.classList.remove('fade-out');
+  }, $('#viewer').classList.contains('hidden') ? 0 : 150);
   const m = rec.meta, i = m.info || {};
+  $('#galCounter').textContent = `${gallery.index + 1} / ${recs.length}`;
+  $('#galLabel').textContent = i.alignment ? `${i.alignment} · ${i.station}` : new Date(m.time).toLocaleString();
+  $('#galLabel').classList.remove('label-anim');
+  void $('#galLabel').offsetWidth;
+  $('#galLabel').classList.add('label-anim');
+  $('#galFile').textContent = photoFileName(rec) + (m.clean ? ' (clean)' : '');
+  $('#galDots').innerHTML = recs.length > 40 ? '' : recs.map((_, j) => `<button class="gallery-dot${j === gallery.index ? ' active' : ''}" data-j="${j}" aria-label="Photo ${j + 1}"></button>`).join('');
   $('#viewerMeta').textContent = [
-    new Date(m.time).toLocaleString() + (m.clean ? ' (clean)' : ''),
-    m.lat !== null ? `Lat ${m.lat.toFixed(7)}  Lon ${m.lon.toFixed(7)}  ±${dLen(m.accuracy, 1)}  GPS alt ${dLen(m.alt, 1)}` : 'No GPS',
-    `Heading ${fmt(m.heading, 1)}°  Pitch ${fmt(i.pitch, 1)}°`,
-    i.alignment ? `${i.alignment}  Sta ${i.station}  Offset ${fmt(i.offset, 2)} ${i.units || 'm'}${i.designZ !== undefined ? `  Z ${fmt(i.designZ, 2)}` : ''}` : '',
-    i.gridX !== undefined ? `Grid N ${fmt(i.gridY, 3)}  E ${fmt(i.gridX, 3)}  ${i.crs || ''}` : '',
+    `${new Date(m.time).toLocaleString()}  ·  Hdg ${fmt(m.heading, 1)}°  Pitch ${fmt(i.pitch, 1)}°`,
+    m.lat !== null ? `${m.lat.toFixed(7)}, ${m.lon.toFixed(7)}  ±${dLen(m.accuracy, 1)}` : 'No GPS',
+    i.alignment ? `Offset ${fmt(i.offset, 2)} ${i.units || 'm'}${i.designZ !== undefined ? `  ·  Z ${fmt(i.designZ, 2)}` : ''}` : '',
+    i.gridX !== undefined ? `N ${fmt(i.gridY, 3)}  E ${fmt(i.gridX, 3)}` : '',
   ].filter(Boolean).join('\n');
   $('#viewerNote').value = rec.note || '';
+  $('#galPrev').classList.toggle('hidden', recs.length < 2);
+  $('#galNext').classList.toggle('hidden', recs.length < 2);
   $('#viewer').classList.remove('hidden');
 }
+$('#galPrev').addEventListener('click', () => openViewer(gallery.index - 1));
+$('#galNext').addEventListener('click', () => openViewer(gallery.index + 1));
+$('#galDots').addEventListener('click', (e) => { if (e.target.dataset.j) openViewer(+e.target.dataset.j); });
+(() => {
+  let x0 = null;
+  const stage = $('#viewerImg').parentElement;
+  stage.addEventListener('touchstart', (e) => { x0 = e.touches[0].clientX; }, { passive: true });
+  stage.addEventListener('touchend', (e) => {
+    if (x0 === null) return;
+    const dx = e.changedTouches[0].clientX - x0;
+    if (Math.abs(dx) > 50) openViewer(gallery.index + (dx < 0 ? 1 : -1));
+    x0 = null;
+  });
+})();
 $('#viewerNote').addEventListener('change', async (e) => {
   if (!viewerRec) return;
   viewerRec.note = e.target.value;
@@ -739,9 +784,10 @@ $('#vDownload').addEventListener('click', () => viewerRec && downloadBlob(viewer
 $('#vDelete').addEventListener('click', async () => {
   if (!viewerRec || !confirm('Delete this photo?')) return;
   await PhotoStore.remove(viewerRec.id);
-  $('#viewer').classList.add('hidden');
-  renderGallery();
+  await renderGallery();
   updatePhotoCount();
+  if (gallery.recs.length) openViewer(Math.min(gallery.index, gallery.recs.length - 1));
+  else $('#viewer').classList.add('hidden');
 });
 $('#btnExportCsv').addEventListener('click', async () => {
   const all = await PhotoStore.all();
@@ -917,17 +963,21 @@ const tape = $('#compassTape');
 (() => {
   const labels = { 0: 'N', 45: 'NE', 90: 'E', 135: 'SE', 180: 'S', 225: 'SW', 270: 'W', 315: 'NW' };
   let html = '';
-  for (let d = -360; d <= 720; d += 15) {
+  for (let d = -360; d <= 720; d += 5) {
     const n = ((d % 360) + 360) % 360;
     const card = labels[n];
-    html += `<span class="${card ? 'card' : ''}" style="left:${(d + 360) * 3}px">${card || (n % 30 === 0 ? n : '·')}</span>`;
+    const cls = card ? 'card' : n % 30 === 0 ? '' : 'minor';
+    html += `<span class="${cls}" style="left:${(d + 360) * 3}px">${card || (n % 30 === 0 ? n : '')}</span>`;
   }
   tape.innerHTML = html;
 })();
+const CARDINALS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
 function updateCompass() {
   const { heading } = orientation.angles(orientation.quaternion);
-  const w = $('#compass').clientWidth;
+  const w = tape.parentElement.clientWidth;
   tape.style.transform = `translateX(${w / 2 - (heading + 360) * 3}px)`;
+  $('#compassDeg').textContent = `${Math.round(heading) % 360}°`;
+  $('#compassCardinal').textContent = CARDINALS[Math.round(heading / 45) % 8];
 }
 
 function updatePlan() {

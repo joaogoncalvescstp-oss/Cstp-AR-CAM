@@ -83,7 +83,7 @@ export class PlanView {
     }
     const ctx = this.ctx;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.fillStyle = '#10151c';
+    ctx.fillStyle = '#071D49';
     ctx.fillRect(0, 0, w, h);
     if (this.follow && this.user) {
       this.view.cx = this.user.x;
@@ -145,7 +145,7 @@ export class PlanView {
     if (this.user) {
       const ux = X(this.user.x), uy = Y(this.user.y);
       if (this.user.accuracy) {
-        ctx.fillStyle = 'rgba(66,160,255,0.18)';
+        ctx.fillStyle = 'rgba(35,103,211,0.25)';
         ctx.beginPath();
         ctx.arc(ux, uy, Math.max(4, this.user.accuracy * scale), 0, Math.PI * 2);
         ctx.fill();
@@ -154,14 +154,14 @@ export class PlanView {
         const b = this.user.bearing;
         const half = ((this.user.fov || 50) / 2) * (Math.PI / 180);
         const r = 60;
-        ctx.fillStyle = 'rgba(66,160,255,0.35)';
+        ctx.fillStyle = 'rgba(35,103,211,0.55)';
         ctx.beginPath();
         ctx.moveTo(ux, uy);
         ctx.arc(ux, uy, r, b - half - Math.PI / 2, b + half - Math.PI / 2);
         ctx.closePath();
         ctx.fill();
       }
-      ctx.fillStyle = '#42a0ff';
+      ctx.fillStyle = '#2367D3';
       ctx.strokeStyle = '#fff';
       ctx.lineWidth = 2;
       ctx.beginPath();

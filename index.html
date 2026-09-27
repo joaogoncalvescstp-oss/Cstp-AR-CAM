@@ -3,14 +3,14 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
-  <meta name="theme-color" content="#0b0f14">
+  <meta name="theme-color" content="#071D49">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="description" content="Field AR viewer for LandXML road/rail alignments with geotagged photo capture.">
   <title>CSTP AR CAM</title>
   <link rel="manifest" href="manifest.webmanifest">
-  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="icon" href="icons/favicon.png" type="image/png">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
   <link rel="stylesheet" href="css/style.css">
   <script src="vendor/proj4.js"></script>
@@ -30,29 +30,37 @@
     <div id="flash"></div>
 
     <!-- Heads-up display -->
-    <header id="hud" class="glass">
-      <div class="hud-row">
-        <span id="hudAlign" class="hud-align">No alignment loaded</span>
-        <span id="hudSta" class="hud-sta">—</span>
-        <span id="hudOff" class="hud-off"></span>
-      </div>
-      <div class="hud-row hud-sub">
-        <span id="hudGps" class="pill">GPS —</span>
-        <span id="hudHdg" class="pill">Hdg —</span>
-        <span id="hudElev" class="pill hidden"></span>
-        <span id="hudWarn" class="pill warn hidden"></span>
+    <header id="hud" class="header">
+      <img class="header-logo" src="icons/stpaul-logo.png" alt="Saint Paul">
+      <div class="hud-text">
+        <div class="hud-row">
+          <span id="hudAlign" class="hud-align">No alignment loaded</span>
+        </div>
+        <div class="hud-row">
+          <span id="hudSta" class="hud-sta">—</span>
+          <span id="hudOff" class="hud-off"></span>
+        </div>
+        <div class="hud-row hud-sub">
+          <span id="hudGps" class="pill">GPS —</span>
+          <span id="hudHdg" class="pill">Hdg —</span>
+          <span id="hudElev" class="pill hidden"></span>
+          <span id="hudWarn" class="pill warn hidden"></span>
+        </div>
       </div>
     </header>
 
-    <div id="compass" aria-hidden="true"><div id="compassTape"></div><div class="compass-mark"></div></div>
+    <div id="compass" class="compass-widget" aria-hidden="true">
+      <div class="compass-readout"><span id="compassDeg">--°</span><span class="deg-cardinal" id="compassCardinal"></span></div>
+      <div class="ruler-wrapper"><div id="compassTape"></div><div class="ruler-center-mark"></div></div>
+    </div>
     <div id="edgeArrow" class="hidden" aria-hidden="true">➤</div>
     <div id="toast" role="status" aria-live="polite"></div>
 
     <!-- Side tools -->
     <aside id="tools">
-      <button class="tool" id="btnLock" title="Freeze GPS position" aria-pressed="false">📍</button>
-      <button class="tool" id="btnCalib" title="Live calibration">🧭</button>
-      <button class="tool hidden" id="btnTorch" title="Torch" aria-pressed="false">🔦</button>
+      <button class="tool" id="btnLock" title="Freeze GPS position" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a7 7 0 0 0-7 7c0 5 7 13 7 13s7-8 7-13a7 7 0 0 0-7-7zm0 9.5A2.5 2.5 0 1 1 12 6.5a2.5 2.5 0 0 1 0 5z"/></svg></button>
+      <button class="tool" id="btnCalib" title="Live calibration"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="m15.5 8.5-2.2 4.8-4.8 2.2 2.2-4.8z"/></svg></button>
+      <button class="tool hidden" id="btnTorch" title="Torch" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 2h10v4l-3 4v12h-4V10L7 6z"/></svg></button>
       <button class="tool hidden" id="btnZoom" title="Camera zoom">1×</button>
     </aside>
 
@@ -69,18 +77,18 @@
     </div>
 
     <!-- Bottom bar -->
-    <nav id="bar" class="glass">
-      <button class="bar-btn" data-sheet="files"><span>📂</span><small>Files</small></button>
-      <button class="bar-btn" data-sheet="map"><span>🗺️</span><small>Map</small></button>
-      <button id="shutter" aria-label="Take photo"><span></span></button>
-      <button class="bar-btn" data-sheet="photos"><span>🖼️</span><small>Photos</small><b id="photoCount" class="badge hidden">0</b></button>
-      <button class="bar-btn" data-sheet="settings"><span>⚙️</span><small>Settings</small></button>
+    <nav id="bar" class="bottom-bar">
+      <button class="nav-btn bar-btn" data-sheet="files"><span class="nav-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6.5A1.5 1.5 0 0 1 4.5 5h4.2l2 2.2h8.8A1.5 1.5 0 0 1 21 8.7v9.8a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5z"/></svg></span><span>Files</span></button>
+      <button class="nav-btn bar-btn" data-sheet="map"><span class="nav-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4 3.5 6v14L9 18l6 2 5.5-2V4L15 6zM9 4v14M15 6v14" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg></span><span>Map</span></button>
+      <button class="cam-btn" id="shutter" aria-label="Take photo"><img src="icons/stpaul-logo.png" alt=""></button>
+      <button class="nav-btn bar-btn" data-sheet="photos"><span class="nav-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="m5 18 5-6 4 4.5 2.5-3L20 18z"/><circle cx="16" cy="8.5" r="1.8"/></svg></span><span>Photos</span><b id="photoCount" class="badge hidden">0</b></button>
+      <button class="nav-btn bar-btn" data-sheet="settings"><span class="nav-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7zm8.4 5.1-1.9-.3a6.9 6.9 0 0 1-.7 1.6l1.1 1.6-1.9 1.9-1.6-1.1c-.5.3-1 .5-1.6.7l-.3 1.9h-2.8l-.3-1.9a6.9 6.9 0 0 1-1.6-.7l-1.6 1.1-1.9-1.9 1.1-1.6a6.9 6.9 0 0 1-.7-1.6l-1.9-.3v-2.8l1.9-.3c.2-.6.4-1.1.7-1.6L4.8 6.6l1.9-1.9 1.6 1.1c.5-.3 1-.5 1.6-.7l.3-1.9h2.8l.3 1.9c.6.2 1.1.4 1.6.7l1.6-1.1 1.9 1.9-1.1 1.6c.3.5.5 1 .7 1.6l1.9.3z"/></svg></span><span>Settings</span></button>
     </nav>
 
     <!-- Start screen -->
     <section id="start" class="overlay">
       <div class="start-card">
-        <img src="icons/icon.svg" alt="" class="logo">
+        <img src="icons/stpaul-logo.png" alt="Saint Paul" class="logo">
         <h1>CSTP AR CAM</h1>
         <p class="lead">Load a LandXML alignment and see it in augmented reality through your phone camera, using GPS, compass and motion sensors. Take geotagged photos with station &amp; offset stamped on them.</p>
         <div id="startStatus" class="status"></div>
@@ -150,7 +158,7 @@
           <button id="btnDeleteAll" class="danger">Delete all</button>
         </div>
         <div id="gallery" class="gallery"></div>
-        <p id="galleryEmpty" class="muted">No photos yet. Use the round shutter button.</p>
+        <p id="galleryEmpty" class="thumb-hint">📷 photos appear here</p>
       </div>
     </section>
 
@@ -200,15 +208,27 @@
     </section>
 
     <!-- Photo viewer -->
-    <section id="viewer" class="overlay hidden" aria-label="Photo viewer">
-      <img id="viewerImg" alt="Captured photo">
-      <div id="viewerMeta" class="glass"></div>
-      <textarea id="viewerNote" placeholder="Add a note…" rows="2"></textarea>
-      <div class="row viewer-actions">
-        <button id="vShare" class="primary">Share</button>
-        <button id="vDownload" class="secondary">Download</button>
-        <button id="vDelete" class="danger">Delete</button>
-        <button id="vClose" class="secondary">Close</button>
+    <section id="viewer" class="gallery-overlay hidden" aria-label="Photo viewer">
+      <div class="gallery-topbar">
+        <span class="gallery-counter" id="galCounter"></span>
+        <button class="gallery-topbar-btn close-btn" id="vClose" aria-label="Close">✕</button>
+      </div>
+      <div class="gallery-stage">
+        <button class="gallery-arrow prev" id="galPrev" aria-label="Previous">&#8592;</button>
+        <img class="gallery-img" id="viewerImg" alt="Captured photo">
+        <button class="gallery-arrow next" id="galNext" aria-label="Next">&#8594;</button>
+      </div>
+      <div class="gallery-caption">
+        <div class="cap-label" id="galLabel"></div>
+        <div class="cap-file" id="galFile"></div>
+      </div>
+      <div class="gallery-dots" id="galDots"></div>
+      <div id="viewerMeta" class="gallery-meta"></div>
+      <textarea id="viewerNote" placeholder="Add a note…" rows="1"></textarea>
+      <div class="gallery-bottombar">
+        <button class="gallery-action-btn btn-reshoot" id="vDelete">🗑 Delete</button>
+        <button class="gallery-action-btn btn-share" id="vShare">⬆ Share</button>
+        <button class="gallery-action-btn btn-zip" id="vDownload">⬇ Save</button>
       </div>
     </section>
 

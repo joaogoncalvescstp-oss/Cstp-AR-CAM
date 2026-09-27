@@ -123,26 +123,47 @@ function dataURLToBlob(url) {
 
 // --- Composition -----------------------------------------------------------
 
+// Saint Paul logo drawn at the left of the info box.
+const logo = new Image();
+logo.src = 'icons/stpaul-logo.png';
+const FONT = '-apple-system, "SF Pro Text", system-ui, sans-serif';
+
+// Info box in the app's style: Big Rivers Blue glass, gold first line, logo on the left.
 function drawStamp(ctx, W, H, lines) {
   let scale = Math.max(1, Math.min(W, H) / 900);
+  const hasLogo = logo.complete && logo.naturalWidth > 0;
+  const logoW = () => (hasLogo ? Math.round(lh() * lines.length * (logo.naturalWidth / logo.naturalHeight)) + pad() : 0);
+  let fs = 22 * scale;
+  const lh = () => Math.round(fs * 1.3);
+  const pad = () => Math.round(14 * scale);
   // Shrink to fit the image width.
-  ctx.font = `600 ${22 * scale}px system-ui, sans-serif`;
+  ctx.font = `600 ${fs}px ${FONT}`;
   const widest = Math.max(...lines.map((l) => ctx.measureText(l).width));
-  scale *= Math.min(1, (W - 60 * scale) / widest);
-  const fs = Math.round(22 * scale);
-  const lh = Math.round(fs * 1.3);
-  const pad = Math.round(14 * scale);
-  ctx.font = `600 ${fs}px system-ui, sans-serif`;
-  const w = Math.max(...lines.map((l) => ctx.measureText(l).width)) + pad * 2;
-  const h = lines.length * lh + pad * 2 - (lh - fs);
-  const x = pad, y = H - h - pad;
-  ctx.fillStyle = 'rgba(0,0,0,0.6)';
+  scale *= Math.min(1, (W - 60 * scale - logoW()) / widest);
+  fs = Math.round(22 * scale);
+  ctx.font = `600 ${fs}px ${FONT}`;
+  const textW = Math.max(...lines.map((l) => ctx.measureText(l).width));
+  const lw = logoW();
+  const w = textW + lw + pad() * 2;
+  const h = lines.length * lh() + pad() * 2 - (lh() - fs);
+  const x = pad(), y = H - h - pad();
+  ctx.fillStyle = 'rgba(7,29,73,0.78)';
+  ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+  ctx.lineWidth = Math.max(1, scale);
   ctx.beginPath();
-  ctx.roundRect(x, y, w, h, 10 * scale);
+  ctx.roundRect(x, y, w, h, 14 * scale);
   ctx.fill();
-  ctx.fillStyle = '#fff';
+  ctx.stroke();
+  if (hasLogo) {
+    const lhgt = h - pad() * 2;
+    ctx.drawImage(logo, x + pad(), y + pad(), lhgt * (logo.naturalWidth / logo.naturalHeight), lhgt);
+  }
   ctx.textBaseline = 'top';
-  lines.forEach((l, i) => ctx.fillText(l, x + pad, y + pad + i * lh));
+  lines.forEach((l, i) => {
+    ctx.fillStyle = i === 0 ? '#F1B434' : '#fff';
+    ctx.font = `${i === 0 ? 700 : 600} ${fs}px ${FONT}`;
+    ctx.fillText(l, x + pad() + lw, y + pad() + i * lh());
+  });
 }
 
 // Compose visible camera region + AR canvas + stamp. Returns {blob, thumb, width, height}.
