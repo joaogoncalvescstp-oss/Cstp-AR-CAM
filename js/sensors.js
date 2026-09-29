@@ -162,8 +162,10 @@ export class OrientationSource extends EventTarget {
 export class GPSSource extends EventTarget {
   constructor() {
     super();
-    this.position = null; // smoothed {lat, lon, alt, accuracy, altAccuracy, speed, heading, time}
+    this._pos = null; // smoothed {lat, lon, alt, accuracy, altAccuracy, speed, heading, time}
     this.raw = null;
+    // Control-point correction added to every fix: {dLat, dLon} (degrees) and dAlt (m).
+    this.shift = null;
     this.locked = false;
     this.error = null;
     this.watchId = null;
@@ -183,6 +185,18 @@ export class GPSSource extends EventTarget {
       { enableHighAccuracy: true, maximumAge: 0, timeout: 30000 },
     );
     return true;
+  }
+
+  // Corrected position (smoothed fix + control-point shift).
+  get position() {
+    const p = this._pos;
+    if (!p || !this.shift) return p;
+    return { ...p, lat: p.lat + this.shift.dLat, lon: p.lon + this.shift.dLon, alt: p.alt === null ? null : p.alt + (this.shift.dAlt || 0), shifted: true };
+  }
+
+  // Position without the control-point shift.
+  get uncorrected() {
+    return this._pos;
   }
 
   stop() {
@@ -205,14 +219,14 @@ export class GPSSource extends EventTarget {
     this.raw = fix;
     this.error = null;
     if (this.locked) return;
-    if (!this.position || fix.speed > 1.5 || fix.time - this.position.time > 20000) {
-      this.position = { ...fix };
+    if (!this._pos || fix.speed > 1.5 || fix.time - this._pos.time > 20000) {
+      this._pos = { ...fix };
     } else {
       // Accuracy-weighted exponential filter: better fixes pull harder.
-      const prev = this.position;
+      const prev = this._pos;
       const w = Math.min(1, Math.max(0.1, (prev.accuracy * prev.accuracy) / (prev.accuracy * prev.accuracy + fix.accuracy * fix.accuracy)));
       const lerp = (a, b) => (a === null || b === null ? b ?? a : a + (b - a) * w);
-      this.position = {
+      this._pos = {
         ...fix,
         lat: lerp(prev.lat, fix.lat),
         lon: lerp(prev.lon, fix.lon),
@@ -225,7 +239,7 @@ export class GPSSource extends EventTarget {
 
   // Manually override (e.g. simulate on desktop or tap map).
   setManual(lat, lon, alt = null) {
-    this.position = { lat, lon, alt, accuracy: 0.5, altAccuracy: null, speed: 0, heading: null, time: Date.now(), manual: true };
+    this._pos = { lat, lon, alt, accuracy: 0.5, altAccuracy: null, speed: 0, heading: null, time: Date.now(), manual: true };
     this.dispatchEvent(new Event('change'));
   }
 }

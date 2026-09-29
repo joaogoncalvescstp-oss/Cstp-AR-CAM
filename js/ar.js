@@ -81,6 +81,19 @@ export class ARScene {
     this.nearest.visible = false;
     this.scene.add(this.nearest);
 
+    // Selected control point: gold ring and a tall pole to aim the crosshair at.
+    this.target = new THREE.Group();
+    const gold = new THREE.MeshBasicMaterial({ color: 0xF1B434, transparent: true, opacity: 0.95, side: THREE.DoubleSide, depthTest: false });
+    const tRing = new THREE.Mesh(new THREE.RingGeometry(0.22, 0.32, 40).rotateX(-Math.PI / 2), gold);
+    const tDot = new THREE.Mesh(new THREE.CircleGeometry(0.05, 16).rotateX(-Math.PI / 2), gold);
+    const tPole = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 3, 8).translate(0, 1.5, 0), gold);
+    for (const m of [tRing, tDot, tPole]) {
+      m.renderOrder = 6;
+      this.target.add(m);
+    }
+    this.target.visible = false;
+    this.scene.add(this.target);
+
     this.origin = null;
     this.settings = {
       lineWidth: 6,
@@ -356,6 +369,15 @@ export class ARScene {
   setGroundElevation(z) {
     this.groundElevation = z || 0;
     this.root.position.y = this.settings.heightMode === 'flat' ? 0 : -this.groundElevation;
+  }
+
+  setTarget(p) {
+    if (!p) {
+      this.target.visible = false;
+      return;
+    }
+    this.target.visible = true;
+    this.target.position.set(p[0], p[1] + this.root.position.y + 0.02, p[2]);
   }
 
   setNearest(p) {

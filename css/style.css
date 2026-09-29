@@ -131,8 +131,15 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .tool:active { transform: scale(1.18); transition-duration: 0.12s; }
 .tool[aria-pressed="true"] { background: var(--gold); color: var(--big-rivers-blue); }
 
+/* ═══ CROSSHAIR ═══ */
+#crosshair { position: absolute; left: 50%; top: 50%; width: 76px; height: 76px; margin: -38px 0 0 -38px; pointer-events: none; z-index: 5; }
+#crosshair::before, #crosshair::after { content: ''; position: absolute; background: var(--gold); box-shadow: 0 0 0 1px rgba(7, 29, 73, 0.8), 0 0 8px rgba(0, 0, 0, 0.6); }
+#crosshair::before { left: 50%; top: 0; bottom: 0; width: 2px; margin-left: -1px; }
+#crosshair::after { top: 50%; left: 0; right: 0; height: 2px; margin-top: -1px; }
+#crosshair span { position: absolute; left: 50%; top: 50%; width: 30px; height: 30px; margin: -15px 0 0 -15px; border: 2px solid var(--gold); border-radius: 50%; box-shadow: 0 0 0 1px rgba(7, 29, 73, 0.8); }
+
 /* ═══ CALIBRATION PANEL ═══ */
-#calib { position: absolute; left: 10px; right: 10px; bottom: calc(118px + var(--safe-b)); border-radius: 18px; padding: 12px; z-index: 6; background: rgba(7, 29, 73, 0.88); backdrop-filter: blur(20px) saturate(1.8); -webkit-backdrop-filter: blur(20px) saturate(1.8); }
+#calib { position: absolute; left: 10px; right: 10px; bottom: calc(118px + var(--safe-b)); max-height: calc(50vh - 172px); overflow: auto; border-radius: 18px; padding: 12px; z-index: 6; background: rgba(7, 29, 73, 0.88); backdrop-filter: blur(20px) saturate(1.8); -webkit-backdrop-filter: blur(20px) saturate(1.8); }
 .calib-row { display: grid; grid-template-columns: 58px repeat(2, 1fr) 78px repeat(2, 1fr); gap: 6px; align-items: center; margin-bottom: 6px; }
 .calib-row span { font-size: 12px; font-weight: 700; color: var(--muted); }
 .calib-row button { padding: 8px 0; border-radius: 12px; border: none; background: white; color: var(--sky-blue-web); font-weight: 700; transition: transform 0.35s var(--spring); }
@@ -371,3 +378,18 @@ input[type="range"] { width: 100%; accent-color: var(--gold); }
   .compass-widget { left: calc(50% - 52px); }
   .sheet, .sheet.tall { max-height: 92vh; height: 92vh; right: 104px; bottom: 0; }
 }
+
+.calib-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.calib-head b { font-size: 16px; font-weight: 800; color: var(--gold); letter-spacing: 0.2px; }
+.calib-head .close { width: 32px; height: 32px; font-size: 14px; }
+.ctrl-info { font-size: 12px; color: var(--muted); margin: 6px 2px; font-variant-numeric: tabular-nums; min-height: 1em; }
+.ctrl-check { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); margin: 8px 2px; }
+.ctrl-check input { width: 18px; height: 18px; accent-color: var(--gold); }
+.calib-status { font-size: 12px; font-family: "SF Mono", Menlo, monospace; color: white; background: rgba(255, 255, 255, 0.08); border-radius: 10px; padding: 6px 8px; margin: 6px 0; white-space: pre-wrap; }
+.calib-status:empty { display: none; }
+.fine-adjust { margin: 8px 0; }
+.fine-adjust summary { cursor: pointer; font-size: 13px; font-weight: 700; color: var(--muted); padding: 6px 2px; }
+.fine-adjust[open] summary { margin-bottom: 6px; }
+button.wide { width: 100%; margin-top: 6px; }
+#calib .calib-actions button { padding: 12px 6px; }
+#app.aligning #toast { bottom: auto; top: 36%; }

@@ -65,16 +65,32 @@
       <button class="tool hidden" id="btnZoom" title="Camera zoom">1×</button>
     </aside>
 
-    <!-- Live calibration panel -->
+    <!-- Crosshair for sighting a control point -->
+    <div id="crosshair" class="hidden" aria-hidden="true"><span></span></div>
+
+    <!-- Align to control / live calibration panel -->
     <div id="calib" class="glass hidden">
-      <div class="calib-row"><span>Heading</span><button data-cal="hdg" data-d="-1">−1°</button><button data-cal="hdg" data-d="-0.2">−.2</button><output id="calHdg">0.0°</output><button data-cal="hdg" data-d="0.2">+.2</button><button data-cal="hdg" data-d="1">+1°</button></div>
-      <div class="calib-row"><span>Height</span><button data-cal="h" data-d="-0.5">−.5</button><button data-cal="h" data-d="-0.1">−.1</button><output id="calH">0.00 m</output><button data-cal="h" data-d="0.1">+.1</button><button data-cal="h" data-d="0.5">+.5</button></div>
-      <div class="calib-row"><span>FOV</span><button data-cal="fov" data-d="-2">−2</button><button data-cal="fov" data-d="-0.5">−.5</button><output id="calFov">66°</output><button data-cal="fov" data-d="0.5">+.5</button><button data-cal="fov" data-d="2">+2</button></div>
-      <div class="calib-actions">
-        <button id="btnAlignHeading" class="secondary">Align heading to alignment</button>
-        <button id="btnCalibDone" class="primary">Done</button>
+      <div class="calib-head">
+        <b>Align to control</b>
+        <button id="btnCalibDone" class="close" aria-label="Close">✕</button>
       </div>
-      <p class="hint">Stand on the alignment and point the phone along it, then tap “Align heading”. Fine-tune until the line sits on the ground marks.</p>
+      <select id="ctrlPoint" aria-label="Control point"></select>
+      <div id="ctrlInfo" class="ctrl-info"></div>
+      <div class="calib-actions">
+        <button id="btnOccupy" class="primary">📍 On point · Zero</button>
+        <button id="btnSight" class="gold">⊕ Sight · Zero</button>
+      </div>
+      <label class="ctrl-check"><input type="checkbox" id="ctrlHeight" checked> Also zero height to the point elevation</label>
+      <div id="calStatus" class="calib-status"></div>
+      <details class="fine-adjust">
+        <summary>Fine adjust</summary>
+        <div class="calib-row"><span>Heading</span><button data-cal="hdg" data-d="-1">−1°</button><button data-cal="hdg" data-d="-0.2">−.2</button><output id="calHdg">0.0°</output><button data-cal="hdg" data-d="0.2">+.2</button><button data-cal="hdg" data-d="1">+1°</button></div>
+        <div class="calib-row"><span>Height</span><button data-cal="h" data-d="-0.5">−.5</button><button data-cal="h" data-d="-0.1">−.1</button><output id="calH">0.00 m</output><button data-cal="h" data-d="0.1">+.1</button><button data-cal="h" data-d="0.5">+.5</button></div>
+        <div class="calib-row"><span>FOV</span><button data-cal="fov" data-d="-2">−2</button><button data-cal="fov" data-d="-0.5">−.5</button><output id="calFov">66°</output><button data-cal="fov" data-d="0.5">+.5</button><button data-cal="fov" data-d="2">+2</button></div>
+        <button id="btnAlignHeading" class="secondary wide">Align heading to alignment</button>
+      </details>
+      <button id="btnResetAlign" class="danger wide">Reset alignment</button>
+      <p class="hint"><b>On point:</b> stand (or set the phone) on the control point, then Zero: GPS error is removed and the position is held. <b>Sight:</b> put the crosshair on a control point you can see, then Zero: heading (and height) are corrected. Best: occupy one point, then sight a second one.</p>
     </div>
 
     <!-- Bottom bar -->

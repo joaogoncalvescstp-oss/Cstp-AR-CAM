@@ -91,6 +91,7 @@ const ar = new ARScene($('#ar'));
 const plan = new PlanView($('#plan'));
 
 applySettingsToEngines();
+if (settings.posShift && Number.isFinite(settings.posShift.dLat)) gps.shift = settings.posShift;
 
 // GPS ellipsoid height (m) -> elevation in the drawings' vertical datum (m).
 function gpsToDrawingElev(h) {
@@ -519,6 +520,7 @@ function setUnits(system) {
   Units.system = system;
   saveSettings();
   applySettingsToEngines();
+if (settings.posShift && Number.isFinite(settings.posShift.dLat)) gps.shift = settings.posShift;
   syncSettingInputs();
   updateUnitLabels();
   updateCalibUI();
@@ -548,6 +550,7 @@ $$('[data-set]').forEach((el) => {
     settings[k] = v;
     saveSettings();
     applySettingsToEngines();
+if (settings.posShift && Number.isFinite(settings.posShift.dLat)) gps.shift = settings.posShift;
     updateCalibUI();
     if (GEOMETRY_KEYS.has(k)) scheduleRebuild(true);
   });
@@ -571,11 +574,19 @@ function updateCalibUI() {
 }
 updateCalibUI();
 
-$('#btnCalib').addEventListener('click', () => {
-  $('#calib').classList.toggle('hidden');
-  closeSheets();
-});
-$('#btnCalibDone').addEventListener('click', () => $('#calib').classList.add('hidden'));
+function setAlignPanel(open) {
+  $('#calib').classList.toggle('hidden', !open);
+  $('#crosshair').classList.toggle('hidden', !open);
+  $('#btnCalib').setAttribute('aria-pressed', String(open));
+  $('#app').classList.toggle('aligning', open);
+  if (open) {
+    closeSheets();
+    renderControlList();
+    updateAlignStatus();
+  }
+}
+$('#btnCalib').addEventListener('click', () => setAlignPanel($('#calib').classList.contains('hidden')));
+$('#btnCalibDone').addEventListener('click', () => setAlignPanel(false));
 $$('[data-cal]').forEach((b) => b.addEventListener('click', () => {
   const d = Number(b.dataset.d);
   if (b.dataset.cal === 'hdg') settings.headingOffset = +((+settings.headingOffset || 0) + d).toFixed(2);
@@ -583,6 +594,7 @@ $$('[data-cal]').forEach((b) => b.addEventListener('click', () => {
   if (b.dataset.cal === 'fov') settings.fovLong = Math.min(120, Math.max(20, +((+settings.fovLong || 66) + d).toFixed(2)));
   saveSettings();
   applySettingsToEngines();
+if (settings.posShift && Number.isFinite(settings.posShift.dLat)) gps.shift = settings.posShift;
   syncSettingInputs();
   updateCalibUI();
 }));
@@ -605,9 +617,152 @@ $('#btnAlignHeading').addEventListener('click', () => {
   settings.headingOffset = +(((+settings.headingOffset || 0) + diff + 540) % 360 - 180).toFixed(2);
   saveSettings();
   applySettingsToEngines();
+if (settings.posShift && Number.isFinite(settings.posShift.dLat)) gps.shift = settings.posShift;
   syncSettingInputs();
   updateCalibUI();
   toast(`Heading corrected by ${diff.toFixed(1)}°`);
+});
+
+// --- Control points: occupy / sight -----------------------------------------------------
+
+// All loaded points (PNEZD files and LandXML CgPoints) usable as control.
+function controlPoints() {
+  return state.model ? state.model.points.filter((p) => Number.isFinite(p.x) && Number.isFinite(p.y)) : [];
+}
+
+function selectedControl() {
+  const v = $('#ctrlPoint').value;
+  const pts = controlPoints();
+  if (v === '') return null;
+  return pts[+v] || null;
+}
+
+// Grid distance from the user (file units), or null without a position.
+function controlDistance(pt) {
+  return state.userGrid ? Math.hypot(pt.x - state.userGrid.x, pt.y - state.userGrid.y) : null;
+}
+
+function renderControlList() {
+  const sel = $('#ctrlPoint');
+  const prev = sel.value;
+  const pts = controlPoints();
+  const u = state.georef.units;
+  sel.innerHTML = '';
+  if (!pts.length) {
+    sel.innerHTML = '<option value="">No points loaded — load a PNEZD file (Files)</option>';
+    $('#ctrlInfo').textContent = '';
+    return;
+  }
+  // Nearest first when we know where we are.
+  const order = pts.map((p, i) => ({ p, i, d: controlDistance(p) }));
+  if (order[0].d !== null) order.sort((a, b) => a.d - b.d);
+  for (const { p, i, d } of order.slice(0, 500)) {
+    const o = document.createElement('option');
+    o.value = String(i);
+    o.textContent = `${p.name}${p.code ? ' · ' + p.code : ''}${d !== null ? ' · ' + dLen(d * u, 0) : ''}`;
+    sel.appendChild(o);
+  }
+  sel.value = prev !== '' && pts[+prev] ? prev : String(order[0].i);
+  showControlInfo();
+}
+$('#ctrlPoint').addEventListener('change', showControlInfo);
+
+function showControlInfo() {
+  const pt = selectedControl();
+  const u = state.georef.units;
+  if (!pt) return ($('#ctrlInfo').textContent = '');
+  const d = controlDistance(pt);
+  $('#ctrlInfo').textContent = `N ${pt.y.toFixed(3)}  E ${pt.x.toFixed(3)}${pt.z !== null ? `  Z ${elevText(pt.z, u)}` : ''}${d !== null ? `  ·  ${dLen(d * u, 1)} away` : ''}`;
+}
+
+function updateAlignStatus() {
+  const lines = [];
+  const a = settings.alignInfo || {};
+  if (gps.shift) {
+    const e = gps.shift.dLon * metersPerDegreeLon(), n = gps.shift.dLat * 111320;
+    lines.push(`Occupied ${a.occupy || '?'}: GPS shift E ${e >= 0 ? '+' : ''}${dLen(e)}  N ${n >= 0 ? '+' : ''}${dLen(n)}`);
+  }
+  if (a.sight) lines.push(`Sighted ${a.sight}: heading ${(+settings.headingOffset || 0) >= 0 ? '+' : ''}${(+settings.headingOffset || 0).toFixed(2)}°`);
+  if (+settings.verticalOffset) lines.push(`Height correction ${(+settings.verticalOffset).toFixed(2)} ${Units.label}`);
+  $('#calStatus').textContent = lines.join('\n');
+}
+function metersPerDegreeLon() {
+  const lat = (gps.uncorrected && gps.uncorrected.lat) || 45;
+  return 111320 * Math.cos(lat * DEG);
+}
+
+function persistAlignment() {
+  settings.posShift = gps.shift;
+  saveSettings();
+  applySettingsToEngines();
+if (settings.posShift && Number.isFinite(settings.posShift.dLat)) gps.shift = settings.posShift;
+  syncSettingInputs();
+  updateCalibUI();
+  updateAlignStatus();
+}
+
+// Occupy: the phone is on the control point, so the corrected position must equal it.
+$('#btnOccupy').addEventListener('click', () => {
+  const pt = selectedControl();
+  const raw = gps.uncorrected;
+  if (!pt) return toast('Pick a control point first');
+  if (!state.georef.ready) return toast('Georeference the files first');
+  if (!raw) return toast('Waiting for GPS…');
+  const ll = state.georef.gridToLatLon(pt.x, pt.y);
+  const before = gps.shift;
+  gps.shift = { dLat: ll.lat - raw.lat, dLon: ll.lon - raw.lon, dAlt: 0 };
+  const moved = latLonToENU(before ? { lat: raw.lat + before.dLat, lon: raw.lon + before.dLon } : raw, ll.lat, ll.lon);
+  // Hold the position while set up on the point (tap 📍 to walk again).
+  gps.locked = true;
+  $('#btnLock').setAttribute('aria-pressed', 'true');
+  settings.alignInfo = { ...(settings.alignInfo || {}), occupy: pt.name };
+  if ($('#ctrlHeight').checked && pt.z !== null) state.pendingHeightZero = { z: pt.z, mode: 'occupy' };
+  persistAlignment();
+  scheduleRebuild(true);
+  vibrate(30);
+  toast(`Zeroed on ${pt.name}: moved ${dLen(Math.hypot(moved.e, moved.n), 2)} · position held (tap 📍 to walk)`, 4500);
+});
+
+// Sight: the crosshair (screen centre) is on the control point; rotate the view onto it.
+$('#btnSight').addEventListener('click', () => {
+  const pt = selectedControl();
+  if (!pt) return toast('Pick a control point first');
+  if (!ar.origin || !state.georef.ready || !gps.position) return toast('Waiting for GPS…');
+  const u = state.georef.units;
+  const ll = state.georef.gridToLatLon(pt.x, pt.y);
+  const t = latLonToENU(ar.origin, ll.lat, ll.lon);
+  const cam = ar.camera.position;
+  const dE = t.e - cam.x, dN = t.n - -cam.z;
+  const dist = Math.hypot(dE, dN);
+  if (dist < 2) return toast(`Too close to sight (${dLen(dist, 1)}): use “On point” instead`);
+  const bearing = Math.atan2(dE, dN) / DEG;
+  const { heading, pitch } = orientation.angles(orientation.update());
+  const diff = ((bearing - heading + 540) % 360) - 180;
+  settings.headingOffset = +(((+settings.headingOffset || 0) + diff + 540) % 360 - 180).toFixed(3);
+  let hMsg = '';
+  if ($('#ctrlHeight').checked && pt.z !== null && ar.settings.heightMode !== 'flat' && dist >= 5) {
+    // Move the model vertically so the point sits on the crosshair's line of sight.
+    const want = cam.y + dist * Math.tan(pitch * DEG);
+    const have = pt.z * u + ar.root.position.y;
+    const dy = want - have;
+    settings.verticalOffset = +((+settings.verticalOffset || 0) - toDisp(dy)).toFixed(3);
+    hMsg = ` · height ${dy >= 0 ? '+' : ''}${dLen(dy, 2)}`;
+  }
+  settings.alignInfo = { ...(settings.alignInfo || {}), sight: pt.name };
+  persistAlignment();
+  vibrate(30);
+  toast(`Sighted ${pt.name} at ${dLen(dist, 0)}: heading ${diff >= 0 ? '+' : ''}${diff.toFixed(2)}°${hMsg}`, 4500);
+});
+
+$('#btnResetAlign').addEventListener('click', () => {
+  if (!confirm('Clear the control-point alignment (GPS shift, heading and height corrections)?')) return;
+  gps.shift = null;
+  settings.headingOffset = 0;
+  settings.verticalOffset = 0;
+  settings.alignInfo = {};
+  persistAlignment();
+  scheduleRebuild(true);
+  toast('Alignment reset');
 });
 
 // --- Tools ---------------------------------------------------------------------------
@@ -741,6 +896,8 @@ async function takePhoto() {
     `Heading ${heading.toFixed(1)}°  Pitch ${pitch.toFixed(1)}°`,
   ];
   if (info.alignment) stamp.push(`${info.alignment} · Sta ${info.station} · ${offTxt}${info.designZ !== undefined ? ` · Z ${info.designZ.toFixed(2)}` : ''}`);
+  const al = settings.alignInfo || {};
+  if (al.occupy || al.sight) stamp.push(`Aligned on control: ${[al.occupy && 'occupy ' + al.occupy, al.sight && 'sight ' + al.sight].filter(Boolean).join(', ')}`);
   if (info.gridX !== undefined && state.georef.mode === 'crs') stamp.push(`N ${info.gridY.toFixed(2)}  E ${info.gridX.toFixed(2)}  (${info.crs})`);
 
   const meta = { time, lat: pos ? pos.lat : null, lon: pos ? pos.lon : null, alt: pos ? gpsToSeaLevel(pos.alt) : null, accuracy: pos ? pos.accuracy : null, heading, description, info };
@@ -907,6 +1064,7 @@ function maybeRebuild(pos) {
   if (!rebuildQueued && ar.origin && !originFar) return;
   const origin = pos ? { lat: pos.lat, lon: pos.lon } : state.georef.gridToLatLon(state.model.bbox.cx, state.model.bbox.cy);
   applySettingsToEngines();
+if (settings.posShift && Number.isFinite(settings.posShift.dLat)) gps.shift = settings.posShift;
   ar.build(state.model, state.georef, origin, state.visible);
   rebuildQueued = false;
 }
@@ -970,12 +1128,30 @@ function frame(t) {
       const manual = settings.manualElevation;
       ground = manual !== '' && manual !== null && Number.isFinite(+manual) ? fromDisp(+manual) : (gpsToDrawingElev(pos.alt) ?? 0) - ar.settings.eyeHeight;
     }
+    if (state.pendingHeightZero && ar.settings.heightMode !== 'flat') {
+      // Occupied point: the ground under the phone is the point's elevation.
+      settings.verticalOffset = +toDisp(state.pendingHeightZero.z * u - ground).toFixed(3);
+      state.pendingHeightZero = null;
+      saveSettings();
+      syncSettingInputs();
+      updateCalibUI();
+      updateAlignStatus();
+    }
     const vOff = fromDisp(+settings.verticalOffset || 0);
     ar.setGroundElevation(ground + (ar.settings.heightMode === 'flat' ? 0 : vOff));
     if (ar.settings.heightMode === 'flat') ar.root.position.y = -vOff;
   } else {
     ar.setNearest(null);
   }
+
+  // Highlight the selected control point while aligning.
+  const ctrl = !$('#calib').classList.contains('hidden') && ar.origin && state.georef.ready ? selectedControl() : null;
+  if (ctrl) {
+    const ll = state.georef.gridToLatLon(ctrl.x, ctrl.y);
+    const te = latLonToENU(ar.origin, ll.lat, ll.lon);
+    const ty = ar.settings.heightMode === 'flat' || ctrl.z === null ? 0 : ctrl.z * u;
+    ar.setTarget([te.e, ty, -te.n]);
+  } else ar.setTarget(null);
 
   ar.setPose(userENU.e, userENU.n, q);
   // A tall panel covers most of the camera view: redraw less often to keep the UI smooth.
@@ -990,6 +1166,7 @@ function frame(t) {
     if ($('#sheet-map').classList.contains('open')) updatePlan();
     if ($('#sheet-settings').classList.contains('open')) updateSensorTable();
     $('#shutter').classList.toggle('steady', motion.rotationRate !== null && motion.steady);
+    if (!$('#calib').classList.contains('hidden')) showControlInfo();
   }
 }
 requestAnimationFrame(frame);

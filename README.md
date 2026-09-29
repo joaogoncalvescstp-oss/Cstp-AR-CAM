@@ -49,6 +49,13 @@ mapped to this definition; other EPSG/WKT codes in a file are honoured.
   without any GPS altitude.
 - **Point files** (`.csv`, `.txt`, `.pts`): PNEZD (point, northing, easting, elevation, description), like
   FBK-Checker's import. Files without northing/easting are rejected with an explanation.
+- **Align to control points** (🧭 button): pick a control point from a loaded PNEZD file (nearest first), then
+  - **On point · Zero** — with the phone on the point, the GPS error is measured and removed (applied to every later
+    fix), the position is held, and optionally the height is zeroed to the point elevation;
+  - **Sight · Zero** — put the centre crosshair on a visible control point (gold ring and pole) and the heading, and
+    optionally the height, are corrected so the AR lands on it.
+  Occupy one point and sight a second for a full setup. The corrections persist until **Reset alignment** and are
+  noted on photos.
 - **AR view** (three.js)
   - Centreline, optional offset lines (e.g. lane edges `-12, 12` ft), station ticks and labels with design Z
   - US feet with `12+34.56` stationing (default) or metres with `1+234.56` (Settings ▸ Units)
