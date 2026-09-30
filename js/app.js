@@ -6,6 +6,8 @@ import { Georef, CRS_PRESETS, resolveCRS, unitScale, latLonToENU, enuToLatLon, i
 import { Units, USFT, dLen, toDisp, fromDisp, staText, elevText } from './units.js';
 import { OrientationSource, GPSSource, MotionSource, WakeLock, vibrate } from './sensors.js';
 import { CameraFeed } from './camera.js';
+import { XRMode } from './xr.js';
+import * as THREE from 'three';
 import { ARScene, PALETTE } from './ar.js';
 import { PlanView } from './plan.js';
 import { PhotoStore, FileStore, composePhoto, photoFileName, downloadBlob, sharePhoto, photosToCSV } from './photos.js';
@@ -89,6 +91,7 @@ const wake = new WakeLock();
 const camera = new CameraFeed($('#video'));
 const ar = new ARScene($('#ar'));
 const plan = new PlanView($('#plan'));
+const xr = new XRMode(ar);
 
 applySettingsToEngines();
 if (settings.posShift && Number.isFinite(settings.posShift.dLat)) gps.shift = settings.posShift;
@@ -101,6 +104,11 @@ function gpsToDrawingElev(h) {
 // GPS ellipsoid height (m) -> sea-level (NAVD88) elevation (m).
 function gpsToSeaLevel(h) {
   return h === null || h === undefined ? null : h - fromDisp(+settings.geoidHeight || 0);
+}
+
+// View direction for the UI: the ARCore camera when tracking, else the phone sensors.
+function viewAngles() {
+  return orientation.angles(state.viewQuat || orientation.update());
 }
 
 // --- UI helpers ---------------------------------------------------------------
@@ -470,7 +478,7 @@ function pinAnchor({ ahead = 0 } = {}) {
   if (!ahead) settings.crsChoice = 'anchor'; // the demo's automatic pin keeps the saved (Ramsey) choice
   saveSettings();
   const p = pointAtStation(al, sta);
-  const heading = orientation.hasData ? orientation.angles(orientation.update()).heading : 0;
+  const heading = orientation.hasData ? viewAngles().heading : 0;
   let ll = { lat: pos.lat, lon: pos.lon };
   if (ahead) ll = enuToLatLon(ll, ahead * Math.sin(heading * DEG), ahead * Math.cos(heading * DEG));
   state.georef.setAnchor({ x: p.x, y: p.y }, ll, p.bearing, heading * DEG);
@@ -520,7 +528,6 @@ function setUnits(system) {
   Units.system = system;
   saveSettings();
   applySettingsToEngines();
-if (settings.posShift && Number.isFinite(settings.posShift.dLat)) gps.shift = settings.posShift;
   syncSettingInputs();
   updateUnitLabels();
   updateCalibUI();
@@ -550,7 +557,6 @@ $$('[data-set]').forEach((el) => {
     settings[k] = v;
     saveSettings();
     applySettingsToEngines();
-if (settings.posShift && Number.isFinite(settings.posShift.dLat)) gps.shift = settings.posShift;
     updateCalibUI();
     if (GEOMETRY_KEYS.has(k)) scheduleRebuild(true);
   });
@@ -594,12 +600,12 @@ $$('[data-cal]').forEach((b) => b.addEventListener('click', () => {
   if (b.dataset.cal === 'fov') settings.fovLong = Math.min(120, Math.max(20, +((+settings.fovLong || 66) + d).toFixed(2)));
   saveSettings();
   applySettingsToEngines();
-if (settings.posShift && Number.isFinite(settings.posShift.dLat)) gps.shift = settings.posShift;
   syncSettingInputs();
   updateCalibUI();
 }));
 
 $('#btnAlignHeading').addEventListener('click', () => {
+  if (xr.active) return toast('In ARCore mode, sight or occupy two control points to set the heading');
   const n = state.nearest;
   if (!n || !ar.origin) return toast('No alignment nearby');
   if (n.so.distance * state.georef.units > 30) return toast(`Walk onto the alignment first (within ${dLen(30, 0)})`);
@@ -608,7 +614,7 @@ $('#btnAlignHeading').addEventListener('click', () => {
   const la = state.georef.gridToLatLon(a.x, a.y), lb = state.georef.gridToLatLon(b.x, b.y);
   const d = latLonToENU(la, lb.lat, lb.lon);
   let bearing = Math.atan2(d.e, d.n) / DEG;
-  const { heading } = orientation.angles(orientation.update());
+  const { heading } = viewAngles();
   let diff = ((bearing - heading + 540) % 360) - 180;
   if (Math.abs(diff) > 90) { // facing the other way along the alignment
     bearing += 180;
@@ -617,7 +623,6 @@ $('#btnAlignHeading').addEventListener('click', () => {
   settings.headingOffset = +(((+settings.headingOffset || 0) + diff + 540) % 360 - 180).toFixed(2);
   saveSettings();
   applySettingsToEngines();
-if (settings.posShift && Number.isFinite(settings.posShift.dLat)) gps.shift = settings.posShift;
   syncSettingInputs();
   updateCalibUI();
   toast(`Heading corrected by ${diff.toFixed(1)}°`);
@@ -684,6 +689,10 @@ function updateAlignStatus() {
   }
   if (a.sight) lines.push(`Sighted ${a.sight}: heading ${(+settings.headingOffset || 0) >= 0 ? '+' : ''}${(+settings.headingOffset || 0).toFixed(2)}°`);
   if (+settings.verticalOffset) lines.push(`Height correction ${(+settings.verticalOffset).toFixed(2)} ${Units.label}`);
+  if (xr.active) {
+    lines.length = 0;
+    lines.push(xr.pairs.length ? `ARCore control: ${xr.pairs.map((p) => p.name).join(', ')}${xr.pairs.length >= 2 ? '' : ' (add a 2nd point)'}` : 'ARCore: placed from GPS + compass. Occupy or sight control points.');
+  }
   $('#calStatus').textContent = lines.join('\n');
 }
 function metersPerDegreeLon() {
@@ -695,15 +704,40 @@ function persistAlignment() {
   settings.posShift = gps.shift;
   saveSettings();
   applySettingsToEngines();
-if (settings.posShift && Number.isFinite(settings.posShift.dLat)) gps.shift = settings.posShift;
   syncSettingInputs();
   updateCalibUI();
   updateAlignStatus();
 }
 
 // Occupy: the phone is on the control point, so the corrected position must equal it.
+// ARCore mode: control points pin the tracked frame to the design (see xr.js).
+function controlWorldPoint(pt) {
+  const u = state.georef.units;
+  const ll = state.georef.gridToLatLon(pt.x, pt.y);
+  const e = latLonToENU(ar.origin, ll.lat, ll.lon);
+  const hasZ = pt.z !== null && ar.settings.heightMode !== 'flat';
+  return { v: new THREE.Vector3(e.e, hasZ ? pt.z * u + ar.root.position.y : ar.root.position.y, -e.n), hasZ };
+}
+
+function xrPairDone(pt, how, res) {
+  settings.alignInfo = { ...(settings.alignInfo || {}), [how]: pt.name, xr: true };
+  saveSettings();
+  updateAlignStatus();
+  vibrate(30);
+  const rot = res.usedPoints === 2 ? ` · heading ${res.headingChangeDeg >= 0 ? '+' : ''}${res.headingChangeDeg.toFixed(2)}° from 2 points` : ' · add a 2nd point to fix the heading';
+  toast(`ARCore: ${how === 'occupy' ? 'occupied' : 'sighted'} ${pt.name}${rot}${res.usedPoints === 2 ? ` · fit ${dLen(res.residual, 2)}` : ''}`, 5000);
+}
+
 $('#btnOccupy').addEventListener('click', () => {
   const pt = selectedControl();
+  if (xr.active) {
+    if (!pt) return toast('Pick a control point first');
+    if (!xr.pose || !xr.aligned) return toast('ARCore is still starting…');
+    const { v, hasZ } = controlWorldPoint(pt);
+    const feet = xr.pose.position.clone();
+    feet.y -= ar.settings.eyeHeight;
+    return xrPairDone(pt, 'occupy', xr.addPair(pt.name, v, feet, hasZ && $('#ctrlHeight').checked));
+  }
   const raw = gps.uncorrected;
   if (!pt) return toast('Pick a control point first');
   if (!state.georef.ready) return toast('Georeference the files first');
@@ -727,6 +761,12 @@ $('#btnOccupy').addEventListener('click', () => {
 $('#btnSight').addEventListener('click', () => {
   const pt = selectedControl();
   if (!pt) return toast('Pick a control point first');
+  if (xr.active) {
+    // ARCore measures where the crosshair ray meets the ground: exact 3D point, no pitch maths.
+    if (!xr.hit) return toast('No ground detected at the crosshair: move the phone slowly so ARCore can find the surface');
+    const { v, hasZ } = controlWorldPoint(pt);
+    return xrPairDone(pt, 'sight', xr.addPair(pt.name, v, xr.hit, hasZ && $('#ctrlHeight').checked));
+  }
   if (!ar.origin || !state.georef.ready || !gps.position) return toast('Waiting for GPS…');
   const u = state.georef.units;
   const ll = state.georef.gridToLatLon(pt.x, pt.y);
@@ -736,7 +776,7 @@ $('#btnSight').addEventListener('click', () => {
   const dist = Math.hypot(dE, dN);
   if (dist < 2) return toast(`Too close to sight (${dLen(dist, 1)}): use “On point” instead`);
   const bearing = Math.atan2(dE, dN) / DEG;
-  const { heading, pitch } = orientation.angles(orientation.update());
+  const { heading, pitch } = viewAngles();
   const diff = ((bearing - heading + 540) % 360) - 180;
   settings.headingOffset = +(((+settings.headingOffset || 0) + diff + 540) % 360 - 180).toFixed(3);
   let hMsg = '';
@@ -754,7 +794,43 @@ $('#btnSight').addEventListener('click', () => {
   toast(`Sighted ${pt.name} at ${dLen(dist, 0)}: heading ${diff >= 0 ? '+' : ''}${diff.toFixed(2)}°${hMsg}`, 4500);
 });
 
+// ARCore mode: make the design ground pass through the detected ground at the crosshair.
+$('#btnGround').addEventListener('click', () => {
+  if (!xr.active || !xr.aligned) return;
+  if (!xr.hit) return toast('No ground detected at the crosshair yet');
+  const u = state.georef.units;
+  const hw = xr.toWorld(xr.hit);
+  const ll = enuToLatLon(ar.origin, hw.x, -hw.z);
+  const g = state.georef.latLonToGrid(ll.lat, ll.lon);
+  let z = null, src = '';
+  for (const sf of state.model ? state.model.surfaces : []) {
+    if (!sf.visible) continue;
+    z = surfaceElevation(sf, g.x, g.y);
+    if (z !== null) { src = 'surface'; break; }
+  }
+  if (z === null && state.model) {
+    let best = null;
+    for (const al of state.model.alignments) {
+      const so = stationOffset(al, g.x, g.y);
+      if (so && so.z !== null && (!best || so.distance < best.distance)) best = so;
+    }
+    if (best && best.distance * u < 15) { z = best.z; src = 'alignment ' + staText(best.station, u); }
+  }
+  if (z === null) return toast('No design surface or alignment elevation at the crosshair');
+  const dy = xr.zeroHeightAt(new THREE.Vector3(hw.x, z * u + ar.root.position.y, hw.z), xr.hit.y);
+  vibrate(30);
+  toast(`Height zeroed on the ground (${src}, Z ${elevText(z, u)}): ${dy >= 0 ? '+' : ''}${dLen(dy, 2)}`, 4500);
+});
+
 $('#btnResetAlign').addEventListener('click', () => {
+  if (xr.active) {
+    xr.pairs = [];
+    xr.aligned = false; // re-placed from GPS + compass on the next frame
+    settings.alignInfo = {};
+    saveSettings();
+    updateAlignStatus();
+    return toast('ARCore alignment reset to GPS + compass');
+  }
   if (!confirm('Clear the control-point alignment (GPS shift, heading and height corrections)?')) return;
   gps.shift = null;
   settings.headingOffset = 0;
@@ -763,6 +839,43 @@ $('#btnResetAlign').addEventListener('click', () => {
   persistAlignment();
   scheduleRebuild(true);
   toast('Alignment reset');
+});
+
+// --- ARCore (WebXR) mode ---------------------------------------------------------------
+
+XRMode.supported().then((ok) => {
+  if (ok) $('#btnXR').classList.remove('hidden');
+});
+
+xr.onEnd = async () => {
+  $('#app').classList.remove('xr');
+  document.body.classList.remove('xr');
+  $('#btnXR').setAttribute('aria-pressed', 'false');
+  state.viewQuat = null;
+  ar.viewPosition = null;
+  try { await camera.start(); } catch (e) { toast('Camera: ' + e.message); }
+  ar.resize();
+  toast('ARCore mode ended: back to GPS + compass');
+};
+
+$('#btnXR').addEventListener('click', async () => {
+  if (xr.active) return xr.stop();
+  if (!state.started) return toast('Start the AR camera first');
+  if (!gps.position) return toast('Waiting for GPS…');
+  // The browser can't share the camera between the page and ARCore.
+  camera.stop();
+  try {
+    $('#app').classList.add('xr');
+    document.body.classList.add('xr');
+    await xr.start($('#app'));
+    $('#btnXR').setAttribute('aria-pressed', 'true');
+    toast('ARCore tracking on. Move the phone slowly; then occupy or sight control points to lock the model in place.', 6000);
+  } catch (e) {
+    $('#app').classList.remove('xr');
+    document.body.classList.remove('xr');
+    try { await camera.start(); } catch { /* ignore */ }
+    toast('ARCore could not start: ' + (e.message || e.name), 6000);
+  }
 });
 
 // --- Tools ---------------------------------------------------------------------------
@@ -864,7 +977,7 @@ document.addEventListener('keydown', (e) => {
 
 function photoContext() {
   const pos = gps.position;
-  const { heading, pitch, roll } = orientation.angles(orientation.update());
+  const { heading, pitch, roll } = viewAngles();
   const n = state.nearest;
   const u = state.georef.units;
   const info = { pitch: +pitch.toFixed(1), roll: +roll.toFixed(1), crs: state.georef.label || '' };
@@ -912,10 +1025,18 @@ async function takePhoto() {
   vibrate(40);
 
   try {
-    ar.render(); // make sure the overlay is current
-    const common = { camera, arCanvas: $('#ar'), viewW: window.innerWidth, viewH: window.innerHeight, meta };
-    const shots = [await composePhoto({ ...common, overlay: settings.photoOverlay, stamp: settings.photoStamp ? stamp : [] })];
-    if (settings.photoClean && settings.photoOverlay) shots.push(await composePhoto({ ...common, overlay: false, stamp: [] }));
+    let shots;
+    if (xr.active) {
+      // ARCore owns the camera: grab its image + the model from the next XR frame.
+      const snap = await xr.capture();
+      if (!snap.hasCamera) toast('ARCore did not share the camera image: photo shows the model only', 4000);
+      shots = [await composePhoto({ snapshot: snap.canvas, stamp: settings.photoStamp ? stamp : [], meta })];
+    } else {
+      ar.render(); // make sure the overlay is current
+      const common = { camera, arCanvas: $('#ar'), viewW: window.innerWidth, viewH: window.innerHeight, meta };
+      shots = [await composePhoto({ ...common, overlay: settings.photoOverlay, stamp: settings.photoStamp ? stamp : [] })];
+      if (settings.photoClean && settings.photoOverlay) shots.push(await composePhoto({ ...common, overlay: false, stamp: [] }));
+    }
     for (const [k, shot] of shots.entries()) {
       const rec = { blob: shot.blob, thumb: shot.thumb, width: shot.width, height: shot.height, meta: { ...meta, clean: k > 0 }, note: '' };
       await PhotoStore.add(rec);
@@ -1051,7 +1172,7 @@ $('#btnDeleteAll').addEventListener('click', async () => {
 
 let rebuildQueued = false;
 function scheduleRebuild(force = false) {
-  if (force) ar.origin = null;
+  if (force && !xr.active) ar.origin = null;
   rebuildQueued = true;
 }
 
@@ -1060,11 +1181,10 @@ function maybeRebuild(pos) {
     if (rebuildQueued) { ar.clear(); rebuildQueued = false; }
     return;
   }
-  const originFar = ar.origin && pos ? Math.hypot(...Object.values(latLonToENU(ar.origin, pos.lat, pos.lon))) > 2000 : false;
+  const originFar = ar.origin && pos && !xr.active ? Math.hypot(...Object.values(latLonToENU(ar.origin, pos.lat, pos.lon))) > 2000 : false;
   if (!rebuildQueued && ar.origin && !originFar) return;
-  const origin = pos ? { lat: pos.lat, lon: pos.lon } : state.georef.gridToLatLon(state.model.bbox.cx, state.model.bbox.cy);
+  const origin = xr.active && ar.origin ? ar.origin : pos ? { lat: pos.lat, lon: pos.lon } : state.georef.gridToLatLon(state.model.bbox.cx, state.model.bbox.cy);
   applySettingsToEngines();
-if (settings.posShift && Number.isFinite(settings.posShift.dLat)) gps.shift = settings.posShift;
   ar.build(state.model, state.georef, origin, state.visible);
   rebuildQueued = false;
 }
@@ -1073,18 +1193,40 @@ if (settings.posShift && Number.isFinite(settings.posShift.dLat)) gps.shift = se
 
 let lastHud = 0;
 let frameCount = 0;
-function frame(t) {
-  requestAnimationFrame(frame);
+function frame(t, xrFrame) {
   if (!state.started) return;
 
   const q = orientation.update();
-  const pos = gps.position;
+  const gpsPos = gps.position;
   tryAutoAnchor();
-  maybeRebuild(pos);
+  maybeRebuild(gpsPos);
 
   const w = window.innerWidth, h = window.innerHeight;
-  if (ar.size.w !== $('#ar').clientWidth || ar.size.h !== $('#ar').clientHeight) ar.resize();
-  ar.setFov(camera.active ? camera.verticalFov(w, h) : 60);
+  if (!xr.active) {
+    if (ar.size.w !== $('#ar').clientWidth || ar.size.h !== $('#ar').clientHeight) ar.resize();
+    ar.setFov(camera.active ? camera.verticalFov(w, h) : 60);
+  }
+
+  // ARCore mode: the tracked camera pose gives the position and view direction.
+  let pos = gpsPos;
+  state.viewQuat = null;
+  ar.viewPosition = null;
+  if (xr.active) {
+    xr.update(xrFrame);
+    if (!xr.aligned && xr.pose && gpsPos && ar.origin) {
+      // First placement from GPS + compass; refine with control points.
+      const e = latLonToENU(ar.origin, gpsPos.lat, gpsPos.lon);
+      const { heading } = orientation.angles(q);
+      xr.initFromSensors(new THREE.Vector3(e.e, ar.settings.eyeHeight, -e.n), heading * DEG);
+    }
+    const cw = xr.aligned ? xr.cameraWorld() : null;
+    if (cw) {
+      state.viewQuat = cw.quaternion;
+      ar.viewPosition = cw.position;
+      const ll = enuToLatLon(ar.origin, cw.position.x, -cw.position.z);
+      pos = { ...(gpsPos || {}), lat: ll.lat, lon: ll.lon, accuracy: gpsPos ? gpsPos.accuracy : 0, xr: true };
+    }
+  }
 
   let userENU = { e: 0, n: 0 };
   state.nearest = null;
@@ -1138,8 +1280,10 @@ function frame(t) {
       updateAlignStatus();
     }
     const vOff = fromDisp(+settings.verticalOffset || 0);
-    ar.setGroundElevation(ground + (ar.settings.heightMode === 'flat' ? 0 : vOff));
-    if (ar.settings.heightMode === 'flat') ar.root.position.y = -vOff;
+    if (!xr.active) {
+      ar.setGroundElevation(ground + (ar.settings.heightMode === 'flat' ? 0 : vOff));
+      if (ar.settings.heightMode === 'flat') ar.root.position.y = -vOff;
+    }
   } else {
     ar.setNearest(null);
   }
@@ -1153,10 +1297,11 @@ function frame(t) {
     ar.setTarget([te.e, ty, -te.n]);
   } else ar.setTarget(null);
 
-  ar.setPose(userENU.e, userENU.n, q);
+  if (!xr.active) ar.setPose(userENU.e, userENU.n, q);
   // A tall panel covers most of the camera view: redraw less often to keep the UI smooth.
   const covered = $('.sheet.tall.open');
-  if (!covered || (frameCount++ % 4) === 0) ar.render();
+  if (xr.active || !covered || (frameCount++ % 4) === 0) ar.render();
+  if (xr.active) xr.afterRender(xrFrame);
   updateEdgeArrow();
   updateCompass();
 
@@ -1169,13 +1314,13 @@ function frame(t) {
     if (!$('#calib').classList.contains('hidden')) showControlInfo();
   }
 }
-requestAnimationFrame(frame);
+ar.renderer.setAnimationLoop(frame);
 
 function updateHUD() {
   const n = state.nearest;
   const u = state.georef.units;
   const pos = gps.position;
-  const { heading, pitch } = orientation.angles(orientation.quaternion);
+  const { heading, pitch } = viewAngles();
   if (n) {
     $('#hudAlign').textContent = n.al.name;
     $('#hudSta').textContent = staText(n.so.station, u);
@@ -1218,7 +1363,10 @@ function updateHUD() {
     el.classList.remove('hidden');
   }
   const g = $('#hudGps');
-  if (pos) {
+  if (xr.active) {
+    g.textContent = xr.tracking === 'tracking' ? `ARCore ✓${xr.pairs.length ? ' · ' + xr.pairs.length + ' ctrl' : ''}` : xr.tracking === 'limited' ? 'ARCore: limited' : 'ARCore: lost';
+    g.className = 'pill ' + (xr.tracking === 'tracking' ? 'good' : 'bad');
+  } else if (pos) {
     g.textContent = `${gps.locked ? '🔒 ' : ''}GPS ±${dLen(pos.accuracy, 1)}`;
     g.className = 'pill ' + (pos.accuracy <= 5 ? 'good' : pos.accuracy > 15 ? 'bad' : '');
   } else {
@@ -1241,7 +1389,8 @@ function updateHUD() {
 function updateEdgeArrow() {
   const el = $('#edgeArrow');
   if (!ar.nearest.visible) return el.classList.add('hidden');
-  const v = ar.nearest.position.clone().project(ar.camera);
+  const viewCam = xr.active ? ar.renderer.xr.getCamera().cameras[0] || ar.camera : ar.camera;
+  const v = ar.nearest.getWorldPosition(new THREE.Vector3()).project(viewCam);
   const behind = v.z > 1;
   let x = v.x, y = v.y;
   if (behind) { x = -x; y = -y; }
@@ -1272,7 +1421,7 @@ const tape = $('#compassTape');
 })();
 const CARDINALS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
 function updateCompass() {
-  const { heading } = orientation.angles(orientation.quaternion);
+  const { heading } = viewAngles();
   const w = tape.parentElement.clientWidth;
   tape.style.transform = `translateX(${w / 2 - (heading + 360) * 3}px)`;
   $('#compassDeg').textContent = `${Math.round(heading) % 360}°`;
@@ -1282,7 +1431,7 @@ function updateCompass() {
 function updatePlan() {
   const pos = gps.position;
   if (pos && state.georef.ready && state.userGrid) {
-    const { heading } = orientation.angles(orientation.quaternion);
+    const { heading } = viewAngles();
     const conv = state.georef.gridConvergence(pos.lat, pos.lon);
     plan.user = { x: state.userGrid.x, y: state.userGrid.y, bearing: heading * DEG + conv, accuracy: pos.accuracy / state.georef.units, fov: ar.camera.fov * ar.camera.aspect };
   } else plan.user = null;
@@ -1297,7 +1446,7 @@ setInterval(() => {
 
 function updateSensorTable() {
   const pos = gps.position, raw = gps.raw;
-  const { heading, pitch, roll } = orientation.angles(orientation.quaternion);
+  const { heading, pitch, roll } = viewAngles();
   const a = motion.gravity, r = motion.rotationRate;
   const cs = camera.track && camera.track.getSettings ? camera.track.getSettings() : {};
   const rows = [

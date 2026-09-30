@@ -69,7 +69,11 @@ export class ARScene {
     this.scene.add(new THREE.AmbientLight(0xffffff, 1));
 
     this.root = new THREE.Group(); // shifted vertically by the height model
-    this.scene.add(this.root);
+    // Everything positioned in the design "world" frame hangs off this group, so
+    // ARCore mode can place the whole model in its tracking frame at once.
+    this.world = new THREE.Group();
+    this.scene.add(this.world);
+    this.world.add(this.root);
     this.labels = [];
     this.lineMaterials = [];
 
@@ -79,7 +83,7 @@ export class ARScene {
     this.nearest = new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9, side: THREE.DoubleSide, depthTest: false }));
     this.nearest.renderOrder = 5;
     this.nearest.visible = false;
-    this.scene.add(this.nearest);
+    this.world.add(this.nearest);
 
     // Selected control point: gold ring and a tall pole to aim the crosshair at.
     this.target = new THREE.Group();
@@ -92,7 +96,17 @@ export class ARScene {
       this.target.add(m);
     }
     this.target.visible = false;
-    this.scene.add(this.target);
+    this.world.add(this.target);
+
+    // ARCore mode: detected ground/surface under the crosshair (XR frame, not world).
+    this.xrReticle = new THREE.Mesh(
+      new THREE.RingGeometry(0.1, 0.14, 32).rotateX(-Math.PI / 2),
+      new THREE.MeshBasicMaterial({ color: 0x34c759, transparent: true, opacity: 0.95, side: THREE.DoubleSide, depthTest: false }),
+    );
+    this.xrReticle.renderOrder = 7;
+    this.xrReticle.visible = false;
+    this.scene.add(this.xrReticle);
+    this.viewPosition = null; // camera position in the world frame when ARCore drives the camera
 
     this.origin = null;
     this.settings = {
@@ -390,7 +404,7 @@ export class ARScene {
   }
 
   render() {
-    const cam = this.camera.position;
+    const cam = this.viewPosition || this.camera.position;
     const range2 = this.settings.labelRange * this.settings.labelRange;
     const rootY = this.root.position.y;
     for (const l of this.labels) {

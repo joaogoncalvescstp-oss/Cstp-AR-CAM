@@ -61,6 +61,7 @@
     <aside id="tools">
       <button class="tool" id="btnLock" title="Freeze GPS position" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a7 7 0 0 0-7 7c0 5 7 13 7 13s7-8 7-13a7 7 0 0 0-7-7zm0 9.5A2.5 2.5 0 1 1 12 6.5a2.5 2.5 0 0 1 0 5z"/></svg></button>
       <button class="tool" id="btnCalib" title="Live calibration"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="m15.5 8.5-2.2 4.8-4.8 2.2 2.2-4.8z"/></svg></button>
+      <button class="tool hidden" id="btnXR" title="ARCore tracking (Android)" aria-pressed="false">AR</button>
       <button class="tool hidden" id="btnTorch" title="Torch" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 2h10v4l-3 4v12h-4V10L7 6z"/></svg></button>
       <button class="tool hidden" id="btnZoom" title="Camera zoom">1×</button>
     </aside>
@@ -80,6 +81,7 @@
         <button id="btnOccupy" class="primary">📍 On point · Zero</button>
         <button id="btnSight" class="gold">⊕ Sight · Zero</button>
       </div>
+      <button id="btnGround" class="secondary wide xr-only">⏚ Ground · Zero height at crosshair</button>
       <label class="ctrl-check"><input type="checkbox" id="ctrlHeight" checked> Also zero height to the point elevation</label>
       <div id="calStatus" class="calib-status"></div>
       <details class="fine-adjust">

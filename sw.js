@@ -1,6 +1,6 @@
 // Offline cache for the app shell. Network-first for HTML so updates land
 // quickly; cache-first for everything else.
-const CACHE = 'cstp-ar-cam-v4';
+const CACHE = 'cstp-ar-cam-v5';
 const SHELL = [
   './',
   'index.html',
@@ -26,6 +26,7 @@ const SHELL = [
   'samples/saint-paul-ramsey.xml',
   'js/units.js',
   'js/points.js',
+  'js/xr.js',
   'icons/stpaul-logo.png',
   'icons/favicon.png',
   'icons/icon-192.png',

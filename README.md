@@ -56,6 +56,13 @@ mapped to this definition; other EPSG/WKT codes in a file are honoured.
     optionally the height, are corrected so the AR lands on it.
   Occupy one point and sight a second for a full setup. The corrections persist until **Reset alignment** and are
   noted on photos.
+- **ARCore mode** (Android Chrome, e.g. Samsung S24 Ultra; **AR** button appears only where supported) via WebXR:
+  ARCore motion tracking keeps the model locked to the ground instead of steering it with the compass and GPS.
+  The model is first placed from GPS + compass, then refined with control points: **On point** (phone over the
+  point), **Sight** (ARCore measures where the crosshair meets the ground, so no pitch/height geometry is needed) —
+  two points fix position and heading exactly; **Ground · Zero** makes the design surface/profile pass through the
+  ground ARCore detects at the crosshair. Photos use ARCore's camera image (Chrome camera-access). iPhones (no WebXR
+  in Safari) keep the GPS + compass mode.
 - **AR view** (three.js)
   - Centreline, optional offset lines (e.g. lane edges `-12, 12` ft), station ticks and labels with design Z
   - US feet with `12+34.56` stationing (default) or metres with `1+234.56` (Settings ▸ Units)

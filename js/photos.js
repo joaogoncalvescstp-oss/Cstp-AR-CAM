@@ -167,9 +167,13 @@ function drawStamp(ctx, W, H, lines) {
 }
 
 // Compose visible camera region + AR canvas + stamp. Returns {blob, thumb, width, height}.
-export async function composePhoto({ camera, arCanvas, viewW, viewH, overlay = true, stamp = [], meta, quality = 0.92 }) {
+export async function composePhoto({ camera, arCanvas, viewW, viewH, overlay = true, stamp = [], meta, quality = 0.92, snapshot = null }) {
   let W, H, src;
-  if (camera && camera.active) {
+  if (snapshot) {
+    // Already composed (ARCore camera image + model).
+    W = snapshot.width;
+    H = snapshot.height;
+  } else if (camera && camera.active) {
     src = camera.visibleRect(viewW, viewH);
     // Never go below the overlay's resolution so lines and labels stay crisp.
     const k = Math.max(1, arCanvas.width / src.sw);
@@ -183,12 +187,13 @@ export async function composePhoto({ camera, arCanvas, viewW, viewH, overlay = t
   c.width = W;
   c.height = H;
   const ctx = c.getContext('2d');
-  if (src) ctx.drawImage(camera.video, src.sx, src.sy, src.sw, src.sh, 0, 0, W, H);
+  if (snapshot) ctx.drawImage(snapshot, 0, 0);
+  else if (src) ctx.drawImage(camera.video, src.sx, src.sy, src.sw, src.sh, 0, 0, W, H);
   else {
     ctx.fillStyle = '#222';
     ctx.fillRect(0, 0, W, H);
   }
-  if (overlay) ctx.drawImage(arCanvas, 0, 0, W, H);
+  if (overlay && !snapshot) ctx.drawImage(arCanvas, 0, 0, W, H);
   if (stamp.length) drawStamp(ctx, W, H, stamp);
 
   let url = c.toDataURL('image/jpeg', quality);

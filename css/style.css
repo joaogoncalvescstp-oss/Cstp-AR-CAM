@@ -393,3 +393,10 @@ input[type="range"] { width: 100%; accent-color: var(--gold); }
 button.wide { width: 100%; margin-top: 6px; }
 #calib .calib-actions button { padding: 12px 6px; }
 #app.aligning #toast { bottom: auto; top: 36%; }
+
+/* ═══ ARCore (WebXR) mode ═══ */
+.xr-only { display: none; }
+#app.xr .xr-only { display: block; }
+html:has(body.xr), body.xr, #app.xr { background: transparent !important; }
+#app.xr #video, #app.xr #ar { display: none; }
+#btnXR { font-size: 13px; letter-spacing: 0.5px; }
